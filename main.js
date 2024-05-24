@@ -1,136 +1,216 @@
-/* global pmtiles */
-import DataTile from 'ol/source/DataTile.js';
 import Map from 'ol/Map.js';
-import TileLayer from 'ol/layer/WebGLTile.js';
 import View from 'ol/View.js';
-import {useGeographic} from 'ol/proj.js';
+import {Image as ImageLayer, Tile as TileLayer} from 'ol/layer.js';
+import {OSM, Raster, XYZ, Vector} from 'ol/source.js';
+import Feature from 'ol/Feature.js';
+import Point from 'ol/geom/Point.js';
+import VectorLayer from 'ol/layer/Vector.js';
 
-useGeographic();
+const coordinates_all = [];
 
-const tiles = new pmtiles.PMTiles(
-  'https://pub-9288c68512ed46eca46ddcade307709b.r2.dev/protomaps-sample-datasets/terrarium_z9.pmtiles',
-);
+/**
+ * Generates a shaded relief image given elevation data.  Uses a 3x3
+ * neighborhood for determining slope and aspect.
+ * @param {Array<ImageData>} inputs Array of input images.
+ * @param {Object} data Data added in the "beforeoperations" event.
+ * @return {ImageData} Output image.
+ */
+function shade(inputs, data) {
+  const elevationImage = inputs[0];
+  const width = elevationImage.width;
+  const height = elevationImage.height;
+  const elevationData = elevationImage.data;
+  const shadeData = new Uint8ClampedArray(elevationData.length);
+  const dp = data.resolution * 2;
+  const maxX = width - 1;
+  const maxY = height - 1;
+  const pixel = [0, 0, 0, 0];
+  const twoPi = 2 * Math.PI;
+  const halfPi = Math.PI / 2;
+  const sunEl = (Math.PI * data.sunEl) / 180;
+  const sunAz = (Math.PI * data.sunAz) / 180;
+  const cosSunEl = Math.cos(sunEl);
+  const sinSunEl = Math.sin(sunEl);
+  let pixelX,
+    pixelY,
+    x0,
+    x1,
+    y0,
+    y1,
+    offset,
+    z0,
+    z1,
+    dzdx,
+    dzdy,
+    slope,
+    aspect,
+    cosIncidence,
+    scaled;
+  function calculateElevation(pixel) {
+    // The method used to extract elevations from the DEM.
+    // In this case the format used is Terrarium
+    // red * 256 + green + blue / 256 - 32768
+    //
+    // Other frequently used methods include the Mapbox format
+    // (red * 256 * 256 + green * 256 + blue) * 0.1 - 10000
+    //
+    return pixel[0] * 256 + pixel[1] + pixel[2] / 256 - 32768;
+  }
+  for (pixelY = 0; pixelY <= maxY; ++pixelY) {
+    y0 = pixelY === 0 ? 0 : pixelY - 1;
+    y1 = pixelY === maxY ? maxY : pixelY + 1;
+    for (pixelX = 0; pixelX <= maxX; ++pixelX) {
+      x0 = pixelX === 0 ? 0 : pixelX - 1;
+      x1 = pixelX === maxX ? maxX : pixelX + 1;
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.addEventListener('load', () => resolve(img));
-    img.addEventListener('error', () => reject(new Error('load failed')));
-    img.src = src;
-  });
+      // determine elevation for (x0, pixelY)
+      offset = (pixelY * width + x0) * 4;
+      pixel[0] = elevationData[offset];
+      pixel[1] = elevationData[offset + 1];
+      pixel[2] = elevationData[offset + 2];
+      pixel[3] = elevationData[offset + 3];
+      z0 = data.vert * calculateElevation(pixel);
+
+      // determine elevation for (x1, pixelY)
+      offset = (pixelY * width + x1) * 4;
+      pixel[0] = elevationData[offset];
+      pixel[1] = elevationData[offset + 1];
+      pixel[2] = elevationData[offset + 2];
+      pixel[3] = elevationData[offset + 3];
+      z1 = data.vert * calculateElevation(pixel);
+
+      dzdx = (z1 - z0) / dp;
+
+      // determine elevation for (pixelX, y0)
+      offset = (y0 * width + pixelX) * 4;
+      pixel[0] = elevationData[offset];
+      pixel[1] = elevationData[offset + 1];
+      pixel[2] = elevationData[offset + 2];
+      pixel[3] = elevationData[offset + 3];
+      z0 = data.vert * calculateElevation(pixel);
+
+      // determine elevation for (pixelX, y1)
+      offset = (y1 * width + pixelX) * 4;
+      pixel[0] = elevationData[offset];
+      pixel[1] = elevationData[offset + 1];
+      pixel[2] = elevationData[offset + 2];
+      pixel[3] = elevationData[offset + 3];
+      z1 = data.vert * calculateElevation(pixel);
+
+      dzdy = (z1 - z0) / dp;
+
+      slope = Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy));
+
+      aspect = Math.atan2(dzdy, -dzdx);
+      if (aspect < 0) {
+        aspect = halfPi - aspect;
+      } else if (aspect > halfPi) {
+        aspect = twoPi - aspect + halfPi;
+      } else {
+        aspect = halfPi - aspect;
+      }
+
+      cosIncidence =
+        sinSunEl * Math.cos(slope) +
+        cosSunEl * Math.sin(slope) * Math.cos(sunAz - aspect);
+
+      offset = (pixelY * width + pixelX) * 4;
+      scaled = 255 * cosIncidence;
+      shadeData[offset] = scaled;
+      shadeData[offset + 1] = scaled;
+      shadeData[offset + 2] = scaled;
+      shadeData[offset + 3] = elevationData[offset + 3];
+    }
+  }
+
+  return {data: shadeData, width: width, height: height};
 }
 
-async function loader(z, x, y) {
-  const response = await tiles.getZxy(z, x, y);
-  const blob = new Blob([response.data]);
-  const src = URL.createObjectURL(blob);
-  const image = await loadImage(src);
-  URL.revokeObjectURL(src);
-  return image;
-}
-
-// The method used to extract elevations from the DEM.
-//   red * 256 + green + blue / 256 - 32768
-function elevation(xOffset, yOffset) {
-  const red = ['band', 1, xOffset, yOffset];
-  const green = ['band', 2, xOffset, yOffset];
-  const blue = ['band', 3, xOffset, yOffset];
-
-  // band math operates on normalized values from 0-1
-  // so we scale by 255
-  return [
-    '+',
-    ['*', 255 * 256, red],
-    ['*', 255, green],
-    ['*', 255 / 256, blue],
-    -32768,
-  ];
-}
-
-// Generates a shaded relief image given elevation data.  Uses a 3x3
-// neighborhood for determining slope and aspect.
-const dp = ['*', 2, ['resolution']];
-const z0x = ['*', ['var', 'vert'], elevation(-1, 0)];
-const z1x = ['*', ['var', 'vert'], elevation(1, 0)];
-const dzdx = ['/', ['-', z1x, z0x], dp];
-const z0y = ['*', ['var', 'vert'], elevation(0, -1)];
-const z1y = ['*', ['var', 'vert'], elevation(0, 1)];
-const dzdy = ['/', ['-', z1y, z0y], dp];
-const slope = ['atan', ['sqrt', ['+', ['^', dzdx, 2], ['^', dzdy, 2]]]];
-const aspect = ['clamp', ['atan', ['-', 0, dzdx], dzdy], -Math.PI, Math.PI];
-const sunEl = ['*', Math.PI / 180, ['var', 'sunEl']];
-const sunAz = ['*', Math.PI / 180, ['var', 'sunAz']];
-
-const incidence = [
-  '+',
-  ['*', ['sin', sunEl], ['cos', slope]],
-  ['*', ['cos', sunEl], ['sin', slope], ['cos', ['-', sunAz, aspect]]],
-];
-const scaled = ['*', 255, incidence];
-
-const variables = {};
-
-const layer = new TileLayer({
-  source: new DataTile({
-    loader,
-    wrapX: true,
-    maxZoom: 9,
-    attributions:
-      "<a href='https://github.com/tilezen/joerd/blob/master/docs/attribution.md#attribution'>Tilezen Jörð</a>",
-  }),
-  style: {
-    variables: variables,
-    color: ['color', scaled],
-  },
+const elevation = new XYZ({
+  url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+  crossOrigin: 'anonymous',
+  maxZoom: 15,  
+  // tileLoadFunction: function(tile, src) {
+  //   const coord = tile.getTileCoord(); // Координаты тайла
+  //   //const url = tile.tileCache.getSource().getTileUrl(coord); // URL-адрес тайла
+  //   console.log('Загружается тайл XYZ:', coord);
+  // },
+  // on('tileloadstart'): function(event) {
+  //   const tile = event.tile;
+  //   const coord = tile.coord; // Координаты тайла
+  //   const url = tile.tileCache.getSource().getTileUrl(coord); // URL-адрес тайла
+  //   console.log('Загружается тайл XYZ:', coord, url);
+  // }),
+  attributions:
+    '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank">Data sources and attribution</a>',
 });
 
-const controlIds = ['vert', 'sunEl', 'sunAz'];
-controlIds.forEach(function (id) {
-  const control = document.getElementById(id);
-  const output = document.getElementById(id + 'Out');
-  function updateValues() {
-    output.innerText = control.value;
-    variables[id] = Number(control.value);
-  }
-  updateValues();
-  control.addEventListener('input', function () {
-    updateValues();
-    layer.updateStyleVariables(variables);
-  });
+const raster = new Raster({
+  sources: [elevation],
+  operationType: 'image',
+  operation: shade,
 });
 
 const map = new Map({
   target: 'map',
-  layers: [layer],
+  layers: [
+    new TileLayer({
+      source: new OSM(),
+    }),
+    new ImageLayer({
+      opacity: 0.3,
+      source: raster,
+    }),
+  ],
   view: new View({
-    center: [0, 0],
-    zoom: 1,
+    center: [6273330, 7296670],
+    zoom: 8,
   }),
 });
 
-function getElevation(data) {
-  const red = data[0];
-  const green = data[1];
-  const blue = data[2];
-  return red * 256 + green + blue / 256 - 32768;
-}
+const controlIds = ['vert', 'sunEl', 'sunAz'];
+const controls = {};
+controlIds.forEach(function (id) {
+  const control = document.getElementById(id);
+  const output = document.getElementById(id + 'Out');
+  control.addEventListener('input', function () {
+    output.innerText = control.value;
+    raster.changed();
+  });
+  output.innerText = control.value;
+  controls[id] = control;
+});
 
-function formatLocation([lon, lat]) {
-  const NS = lat < 0 ? 'S' : 'N';
-  const EW = lon < 0 ? 'W' : 'E';
-  return `${Math.abs(lat).toFixed(1)}° ${NS}, ${Math.abs(lon).toFixed(
-    1,
-  )}° ${EW}`;
-}
-
-const elevationOut = document.getElementById('elevationOut');
-const locationOut = document.getElementById('locationOut');
-function displayPixelValue(event) {
-  const data = layer.getData(event.pixel);
-  if (!data) {
-    return;
+raster.on('beforeoperations', function (event) {
+  // the event.data object will be passed to operations
+  const data = event.data;
+  data.resolution = event.resolution;
+  for (const id in controls) {
+    data[id] = Number(controls[id].value);
   }
-  elevationOut.innerText = getElevation(data).toLocaleString() + ' m';
-  locationOut.innerText = formatLocation(event.coordinate);
-}
-map.on(['pointermove', 'click'], displayPixelValue);
+});
+
+map.on('click', function(event) {
+  const coordinates = event.coordinate; // Получить координаты клика
+
+  // Сохранить координаты в массиве
+  coordinates_all.push(coordinates);
+
+  // Создать метку на карте
+  const marker = new Feature({
+    geometry: new Point(coordinates)
+  });
+
+  const vectorSource = new Vector({
+    features: [marker]
+  });
+
+  const vectorLayer = new VectorLayer({
+    source: vectorSource
+  });
+
+  map.addLayer(vectorLayer);
+
+  console.log(coordinates_all);
+});
+
