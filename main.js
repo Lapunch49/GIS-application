@@ -13,8 +13,7 @@ import { createXYZ } from 'ol/tilegrid';
 import {Grid, a_star} from './algorithm.js';
 import { fromLonLat } from 'ol/proj.js';
 
-const coordinatesAll = [];
-const pixelcoordinatesAll = [];
+const pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
 
 /**
@@ -150,35 +149,37 @@ function findPixelsCoords(coordinatesAll,topLeft, tileWidth, tileHeight, width, 
 }
 
 // Вычисляем положение точек внутри изображения (из пикселей в координаты)
-function findCoordsPixels(pixelsAll,topLeft, tileWidth, tileHeight, width, height){
+function findCoordsPixels(pixelsAll,topLeft, grid){
   let coordinatesAll =[];
-  for (let i=0; i<pixelsAll.length; i++){
-    let pixelX=pixelsAll[i].x;
-    let pixelY=pixelsAll[i].y;
-    let x = (pixelX / width) * tileWidth + topLeft[0];
-    let y = topLeft[1] - (pixelY / height) * tileHeight;
-    coordinatesAll.push([x,y])
-  } 
+  pixelsAll.forEach((pixel)=>{
+      let x = pixel.x*grid.dictZoomPixelLen.get(ZOOM)+topLeft[0];
+      let y = topLeft[1]-pixel.y*grid.dictZoomPixelLen.get(ZOOM);
+      coordinatesAll.push([x,y]);
+    });
   return coordinatesAll;
 }
 
-async function makeImage(coordinates_arr){
+async function makeImage(pointsArr){
   const TILE_SIZE = 256;
   const sourceURL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
   // Создаем TileGrid для уровня масштабирования
   const tileGrid = createXYZ({ maxZoom: ZOOM });
 
-  // Получаем индексы тайлов
-  const tileIndex1 = tileGrid.getTileCoordForCoordAndZ(coordinates_arr[0], ZOOM);
-  const tileIndex2 = tileGrid.getTileCoordForCoordAndZ(coordinates_arr[1], ZOOM);
-
-  const [x1, y1] = tileIndex1.slice(1); // Индексы x и y первой точки
-  const [x2, y2] = tileIndex2.slice(1); // Индексы x и y второй точки
-  const xMax = Math.max(x1,x2);
-  const xMin = Math.min(x1,x2);
-  const yMax = Math.max(y1,y2);
-  const yMin = Math.min(y1,y2);
+  // Получаем индексы тайлов, в которых оказались наши точки
+  let xMax = 0;
+  let xMin = 32768; // максимально возможный +1 индекс тайла для zoom=15
+  let yMax = 0;
+  let yMin = 32768;
+  pointsArr.forEach((point)=>{
+    // Получаем индексы тайла, в котором оказалась наша точка
+    let [tileIndexX,tileIndexY] = tileGrid.getTileCoordForCoordAndZ(point, ZOOM).slice(1);
+    // Обновляем мин. и макс. индексы - граничные индексы тайлов(верхнего левого и правого нижнего), которые будем скачивать
+    xMax = Math.max(xMax,tileIndexX);
+    xMin = Math.min(xMin,tileIndexX);
+    yMax = Math.max(yMax,tileIndexY);
+    yMin = Math.min(yMin,tileIndexY);
+  });
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -225,13 +226,13 @@ async function makeImage(coordinates_arr){
   const tileHeight = extentMin[3]-extentMax[1];
 
   // Вычисляем координаты наших точек на изображении
-  const pixelsAll = findPixelsCoords(coordinatesAll,topLeft,tileWidth,tileHeight, width, height);
+  const pointsArrPixels = findPixelsCoords(pointsArr,topLeft,tileWidth,tileHeight, width, height);
 
-  let path_on_map = [];
+  let pathOnMap = [];
 
   loadAllTiles().then(() => {
       // Получить данные изображения в формате PNG
-      const dataURL = canvas.toDataURL('image/png');
+      //const dataURL = canvas.toDataURL('image/png');
 
       // Создать матрицу = изображению
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -250,33 +251,65 @@ async function makeImage(coordinates_arr){
         }
         matrix.push(row);
       }
-      // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbsacle и др.
-      let grid=new Grid(width, height,pixelsAll[0], pixelsAll[1], matrix);
-      //ZOOM = map.getView.ZOOM;
-      let path = a_star(grid, ZOOM);
-      // path.forEach((obj)=>{
-      //   let x = obj.x*grid.dictZoomPixelLen.get(ZOOM)+topLeft[0];
-      //   let y = topLeft[1]-obj.y*grid.dictZoomPixelLen.get(ZOOM);
-      //   path_on_map.push([x,y]);
-      // });
-      path_on_map = findCoordsPixels(path,topLeft, tileWidth, tileHeight, width, height);
+      // создадим сетки для каждой части пути(для каждой пары начала и конца пути)
+      let grids = []; 
+      for (let i=0; i<pointsArrPixels.length-1; i++){
+        // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbsacle и др.
+        // также для каждой сетки известны свои координаты начала и конца пути(для каждой пары точек)
+        let grid=new Grid(width, height,pointsArrPixels[i], pointsArrPixels[i+1], matrix);
+        grids.push(grid);
+      }
+      // для каждой пары точек находим мин. путь
+      // если путь для какого-то участка не найден, останавливаемся и выводим сообщение об этом
+      let pathTotal =[];
+      for (let i=0; i<grids.length; i++){
+        let path = a_star(grids[i], ZOOM);
+        if (path == []){
+          break;
+        } else{
+          pathTotal.push(path);
+        }
+      }
+      // если все пути были найдены
+      if (pathTotal.length == grids.length){
+        let pathOnMapTotal=[];
+        // переводим координаты пикселей в координаты на карте(EPSG:4326), изначально перевернув их(т.к. алгоритм формирует пути с конца)
+        for (let i=0; i<grids.length; i++){
+          let pathOnMapPart = findCoordsPixels(pathTotal[i].reverse(),topLeft,grids[i]);
+          pathOnMapTotal.push(pathOnMapPart);
+        }
+        // соединяем все пути и точки вместе
+        for (let i=0; i<pathOnMapTotal.length; i++){
+          pathOnMap.push(pointsArr[i]);
+          pathOnMap.push(...pathOnMapTotal[i]);
+        }
+        // соединяем с посл. точкой
+        pathOnMap.push(pointsArr[pointsArr.length-1]);
 
+        console.log(pathOnMap);
+      }
+      // если какой-то путь не был найден
+      else{
+        if (pointsArrPixels.length == 2){
+          alert('Не удалось найти путь, попробуйте увеличить размер окна поиска');
+        }
+        else{
+          let indexOfPath = pathOnMapTotal.length+1;
+          alert('Не удалось найти маршрут на промежутке между', indexOfPath, ' и ', indexOfPath+1, 'точками');
+        }
+      }
+      
       // Либо скачать изображение
       // const link = document.createElement('a');
       // link.href = dataURL;
       // link.download = 'map.png';
       // link.click();
 
-      console.log(path);
   });
 
   await loadAllTiles();
-  return path_on_map;
-
-  // индексы x y для верхнего левого тайла
-  // topLeft - координаты(в метрах) левого верзнего пикселя
-  // координаты пикселей всех точек из массива coordinatesAll
-  // матрицу = изображению
+  // возвращаем путь в координатах проекции карты(EPSG:4326)
+  return pathOnMap;
 }
 
 const elevation = new XYZ({
@@ -313,7 +346,7 @@ const map = new Map({
   view: new View({
     center: [6220000, 7315000],
     //center: fromLonLat([272.0066751135746, 437.0117187501164]),
-    zoom: 15,
+    zoom: 14,
   }),
 });
 
@@ -346,11 +379,9 @@ raster.on('beforeoperations', function (event) {
 
 map.on('click', async function(event) {
   const coordinates = event.coordinate; // Получить координаты клика
-  const pixelCoordinates = map.getPixelFromCoordinate(coordinates);
 
   // Сохранить координаты в массиве
-  coordinatesAll.push(coordinates);
-  pixelcoordinatesAll.push(pixelCoordinates);
+  pointsOnMap.push(coordinates);
 
   // Создать метку на карте
   const marker = new Feature({
@@ -367,75 +398,53 @@ map.on('click', async function(event) {
 
   map.addLayer(vectorLayer);
 
-  console.log(coordinatesAll);
-  console.log(pixelcoordinatesAll);
-  if (coordinatesAll.length == 2){
-
-  //   createHeightMatrixFromTiles(tileUrlTemplate)
-  // .then(heightMatrix => {
-  //   console.log('Матрица высот:', heightMatrix);
-  // })
-  // .catch(error => {
-  //   console.error('Произошла ошибка:', error);
-  // });
-
-  let transformedCoordinates  = await makeImage(coordinatesAll); 
-
-  // map.setView(new View({
-  //   center: transformedCoordinates[0],
-  //   zoom: 15,
-  // }),)
-
-  //const pathCoordinates = await loadPathCoordinates();
-  //transformedCoordinates = transformedCoordinates.map(coord => toLonLat(coord));
-  // индексы и коордианты (в проекции EPSG:3857) для верхнего левого пикселя изображения
-  // topLeft - координаты(в метрах) левого верзнего пикселя
-  // координаты пикселей всех точек из массива coordinatesAll
-  // матрицу = изображению
-  // Создаем линию из координат пути
-  // Координаты пути (должны быть в формате [долгота, широта])
-
-// Преобразуем координаты пути в проекцию карты
-//transformedCoordinates = pathCoordinates.map(coord => fromLonLat(coord));
-
-// Проверка преобразованных координат
-console.log(transformedCoordinates);
-
-
-  const pathFeature = new Feature({
-    geometry: new LineString(transformedCoordinates)
+  console.log(pointsOnMap);
 });
 
-// Создаем слой векторных объектов и добавляем линию
-const vectorSource = new Vector({
-    features: [pathFeature]
-});
+document.getElementById('find-way').addEventListener('click', async function() {
+  // // Ждем события postcompose
+  // const a = document.createElement('a');
+  // document.body.appendChild(a);
+  // a.href = url;
+  // a.download = 'map.png'; // Имя файла
+  // // Запускаем скачивание изображения
+  // a.click();
+  // // Очищаем ссылку и объект URL после завершения скачивания
+  // window.URL.revokeObjectURL(url);
+  // document.body.removeChild(a);
 
-const vectorLayer = new VectorLayer({
-    source: vectorSource,
-    style: new Style({
-        stroke: new Stroke({
-            color: '#ff0000',
-            width: 2
+    // try{
+    let transformedCoordinates  = await makeImage(pointsOnMap);
+    console.log(transformedCoordinates);
+
+    const pathFeature = new Feature({
+      geometry: new LineString(transformedCoordinates)
+    });
+  
+    // Создаем слой векторных объектов и добавляем линию
+    const vectorSource = new Vector({
+        features: [pathFeature]
+    });
+  
+    const vectorLayer = new VectorLayer({
+        source: vectorSource,
+        style: new Style({
+            stroke: new Stroke({
+                color: '#ff0000',
+                width: 3
+            })
         })
-    })
-});
-
-// Добавляем векторный слой на карту
-map.addLayer(vectorLayer);
-
-  }
-});
-
-// document.getElementById('export-png').addEventListener('click', function() {
-//   // Ждем события postcompose
-//   const a = document.createElement('a');
-//   document.body.appendChild(a);
-//   a.href = url;
-//   a.download = 'map.png'; // Имя файла
-//   // Запускаем скачивание изображения
-//   a.click();
-//   // Очищаем ссылку и объект URL после завершения скачивания
-//   window.URL.revokeObjectURL(url);
-//   document.body.removeChild(a);
-// })
+    });
+    // Добавляем векторный слой на карту
+    map.addLayer(vectorLayer);
+    // } 
+    // catch {
+    //   alert('Произошла ошибка:');
+    // }
+  
+    // map.setView(new View({
+    //   center: transformedCoordinates[0],
+    //   zoom: 15,
+    // }),)
+  
+})

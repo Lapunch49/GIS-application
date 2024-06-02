@@ -70,23 +70,21 @@ class Grid {
         // this map is really important as it keeps track of the path
         // in the best way I can put this, it acts like a traceback where each cell points to the cell traversed next
         this.cameFrom = new Map();
-        this.dictZoomPixelLen.set(15, 4.773);
-        //this.dictZoomPixelLen.set(15, 1222.99/256);
-        this.dictZoomPixelLen.set(14, 9.547);
-        //this.dictZoomPixelLen.set(14, 2445.98/256);
-        this.dictZoomPixelLen.set(13, 19.093);
-        this.dictZoomPixelLen.set(12, 38.187);
-        this.dictZoomPixelLen.set(11, 76.373);
-        this.dictZoomPixelLen.set(10, 152.746);
-        this.dictZoomPixelLen.set(9, 305.492);
-        this.dictZoomPixelLen.set(8, 610.984);
-        this.dictZoomPixelLen.set(7, 1222);
-        this.dictZoomPixelLen.set(6, 2444);
-        this.dictZoomPixelLen.set(5, 4888);
-        this.dictZoomPixelLen.set(4, 9776);
-        this.dictZoomPixelLen.set(3, 19551);
-        this.dictZoomPixelLen.set(2, 39103);
-        this.dictZoomPixelLen.set(1, 78206);
+        this.dictZoomPixelLen.set(15, 4.7773);
+        this.dictZoomPixelLen.set(14, 9.5546);
+        this.dictZoomPixelLen.set(13, 19.1093);
+        this.dictZoomPixelLen.set(12, 38.2185);
+        this.dictZoomPixelLen.set(11, 76.4370);
+        this.dictZoomPixelLen.set(10, 152.8741);
+        this.dictZoomPixelLen.set(9, 305.7481);
+        this.dictZoomPixelLen.set(8, 611.4962);
+        this.dictZoomPixelLen.set(7, 1222.9925);
+        this.dictZoomPixelLen.set(6, 2445.9849);
+        this.dictZoomPixelLen.set(5, 4891.9698);
+        this.dictZoomPixelLen.set(4, 9783.9396);
+        this.dictZoomPixelLen.set(3, 19567.8792);
+        this.dictZoomPixelLen.set(2, 39135.7585);
+        this.dictZoomPixelLen.set(1, 78271.5169);
 
         // cells kept for analysing
         this.openSet = [];
@@ -201,7 +199,6 @@ function Cell(x, y, h, id) {
 
 function finish(current, cameFrom) {
     let res = [];
-    //res.push(current);
     // this loop traces the path backwards
     // it finds from where the current cell came from and then further finds from where that cell came from
     while (cameFrom.get(current)) {
