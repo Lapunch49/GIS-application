@@ -4,26 +4,18 @@
     <meta charset="UTF-8">
     <title>Shaded Relief</title>
     <link rel="stylesheet" href="node_modules/ol/ol.css">
-    <style>
-      .map {
-        width: 100%;
-        height: 800px;
-      }
-      table.controls td {
-        padding: 2px 5px;
-      }
-      table.controls td:nth-child(3) {
-        text-align: right;
-        min-width: 3em;
-      }
-    </style>
+    <link rel="stylesheet" href="style.css">
+    <!-- <script type="module" src="algorithm.js"></script> -->
+    <!-- <script type="text/javascript" src="main.js"></script>  -->
+    <!-- <script type="text/javascript" src="algorithm.js"></script> -->
   </head>
   <body>
     <div id="map" class="map"></div>
     <table class="controls">
+      <a id="export-png" class="button" role="button"> Найти минимальный путь</a>
       <tr>
         <td><label for="vert">vertical exaggeration:</label></td>
-        <td><input id="vert" type="range" min="1" max="5" value="1"/></td>
+        <td><input id="vert" type="range" min="1" max="5" value="5"/></td>
         <td><span id="vertOut"></span> x</td>
       </tr>
       <tr>
@@ -37,6 +29,7 @@
         <td><span id="sunAzOut"></span> °</td>
       </tr>
     </table>
+    <a id="image-download" download="map.png"></a>
 
     <script type="module" src="main.js"></script>
   </body>
