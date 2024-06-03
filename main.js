@@ -14,17 +14,11 @@ import {Grid, a_star} from './algorithm.js';
 import { fromLonLat, toLonLat } from 'ol/proj.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 import togpx from 'togpx/togpx.js';
+import {bbox as bboxStrategy} from 'https://cdn.jsdelivr.net/npm/ol/loadingstrategy.js';
 
 const pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
 let way  = []; // путь на карте (массив точек в формате географических координат)
-
-// Пример массива координат маршрута
-const coordinates__ = [
-  [37.7749, -122.4194], // Пример: Сан-Франциско
-  [34.0522, -118.2437], // Пример: Лос-Анджелес
-  [36.1699, -115.1398]  // Пример: Лас-Вегас
-];
 
 /**
  * Generates a shaded relief image given elevation data.  Uses a 3x3
@@ -230,6 +224,23 @@ async function makeImage(pointsArr){
 
   // Верхний левый угол экстента (в проекции карты)
   const topLeft = [extentMin[0], extentMin[3]];
+  // Нижний правый угол экстента (в проекции карты)
+  const downRight = [extentMax[2], extentMax[1]];
+  const topLeftLonLat = toLonLat(topLeft);
+  const downRightLonLat = toLonLat(downRight);
+
+  // await getWaterBodies(topLeftLonLat, downRightLonLat).then(data => {
+  //   console.log(data); // Обработка данных
+  // }).catch(err => {
+  //     console.error(err);
+  // });
+  let waterMatrix = [];
+  await createWaterMatrix(topLeftLonLat, downRightLonLat, width, height).then(waterMatrixL => {
+    console.log(waterMatrixL);
+    waterMatrix = waterMatrixL;
+  }).catch(err => {
+      console.error(err);
+  });
 
   // Ширина и высота экстента изображения
   const tileWidth = extentMax[2]-extentMin[0];
@@ -239,15 +250,15 @@ async function makeImage(pointsArr){
   const pointsArrPixels = findPixelsCoords(pointsArr,topLeft,tileWidth,tileHeight, width, height);
 
   let pathOnMap = [];
+  const matrix = [];
 
-  loadAllTiles().then(() => {
+  await loadAllTiles().then(() => {
       // Получить данные изображения в формате PNG
       //const dataURL = canvas.toDataURL('image/png');
 
       // Создать матрицу = изображению
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
-      const matrix = [];
 
       for (let y = 0; y < canvas.height; y++) {
         const row = [];
@@ -261,54 +272,7 @@ async function makeImage(pointsArr){
         }
         matrix.push(row);
       }
-      // создадим сетки для каждой части пути(для каждой пары начала и конца пути)
-      let grids = []; 
-      for (let i=0; i<pointsArrPixels.length-1; i++){
-        // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbsacle и др.
-        // также для каждой сетки известны свои координаты начала и конца пути(для каждой пары точек)
-        let grid=new Grid(width, height,pointsArrPixels[i], pointsArrPixels[i+1], matrix);
-        grids.push(grid);
-      }
-      // для каждой пары точек находим мин. путь
-      // если путь для какого-то участка не найден, останавливаемся и выводим сообщение об этом
-      let pathTotal =[];
-      for (let i=0; i<grids.length; i++){
-        let path = a_star(grids[i], ZOOM);
-        if (path == []){
-          break;
-        } else{
-          pathTotal.push(path);
-        }
-      }
-      // если все пути были найдены
-      if (pathTotal.length == grids.length){
-        let pathOnMapTotal=[];
-        // переводим координаты пикселей в координаты на карте(EPSG:4326), изначально перевернув их(т.к. алгоритм формирует пути с конца)
-        for (let i=0; i<grids.length; i++){
-          let pathOnMapPart = findCoordsPixels(pathTotal[i].reverse(),topLeft,grids[i]);
-          pathOnMapTotal.push(pathOnMapPart);
-        }
-        // соединяем все пути и точки вместе
-        for (let i=0; i<pathOnMapTotal.length; i++){
-          pathOnMap.push(pointsArr[i]);
-          pathOnMap.push(...pathOnMapTotal[i]);
-        }
-        // соединяем с посл. точкой
-        pathOnMap.push(pointsArr[pointsArr.length-1]);
-
-        console.log(pathOnMap);
-      }
-      // если какой-то путь не был найден
-      else{
-        if (pointsArrPixels.length == 2){
-          alert('Не удалось найти путь, попробуйте увеличить размер окна поиска');
-        }
-        else{
-          let indexOfPath = pathOnMapTotal.length+1;
-          alert('Не удалось найти маршрут на промежутке между', indexOfPath, ' и ', indexOfPath+1, 'точками');
-        }
-      }
-      
+         
       // Либо скачать изображение
       // const link = document.createElement('a');
       // link.href = dataURL;
@@ -317,7 +281,57 @@ async function makeImage(pointsArr){
 
   });
 
-  await loadAllTiles().then();
+  //loadAllTiles().then();
+  
+
+  // создадим сетки для каждой части пути(для каждой пары начала и конца пути)
+  let grids = []; 
+  for (let i=0; i<pointsArrPixels.length-1; i++){
+    // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbsacle и др.
+    // также для каждой сетки известны свои координаты начала и конца пути(для каждой пары точек)
+    let grid=new Grid(width, height,pointsArrPixels[i], pointsArrPixels[i+1], matrix, waterMatrix );
+    grids.push(grid);
+  }
+  // для каждой пары точек находим мин. путь
+  // если путь для какого-то участка не найден, останавливаемся и выводим сообщение об этом
+  let pathTotal =[];
+  for (let i=0; i<grids.length; i++){
+    let path = a_star(grids[i], ZOOM);
+    if (path == []){
+      break;
+    } else{
+      pathTotal.push(path);
+    }
+  }
+  // если все пути были найдены
+  if (pathTotal.length == grids.length){
+    let pathOnMapTotal=[];
+    // переводим координаты пикселей в координаты на карте(EPSG:4326), изначально перевернув их(т.к. алгоритм формирует пути с конца)
+    for (let i=0; i<grids.length; i++){
+      let pathOnMapPart = findCoordsPixels(pathTotal[i].reverse(),topLeft,grids[i]);
+      pathOnMapTotal.push(pathOnMapPart);
+    }
+    // соединяем все пути и точки вместе
+    for (let i=0; i<pathOnMapTotal.length; i++){
+      pathOnMap.push(pointsArr[i]);
+      pathOnMap.push(...pathOnMapTotal[i]);
+    }
+    // соединяем с посл. точкой
+    pathOnMap.push(pointsArr[pointsArr.length-1]);
+
+    console.log(pathOnMap);
+  }
+  // если какой-то путь не был найден
+  else{
+    if (pointsArrPixels.length == 2){
+      alert('Не удалось найти путь, попробуйте увеличить размер окна поиска');
+    }
+    else{
+      let indexOfPath = pathOnMapTotal.length+1;
+      alert('Не удалось найти маршрут на промежутке между', indexOfPath, ' и ', indexOfPath+1, 'точками');
+    }
+  }
+
   // возвращаем путь в координатах проекции карты(EPSG:4326)
   return pathOnMap;
 }
@@ -412,17 +426,11 @@ map.on('click', async function(event) {
 });
 
 document.getElementById('find-way').addEventListener('click', async function() {
-  // // Ждем события postcompose
-  // const a = document.createElement('a');
-  // document.body.appendChild(a);
-  // a.href = url;
-  // a.download = 'map.png'; // Имя файла
-  // // Запускаем скачивание изображения
-  // a.click();
+  
   // // Очищаем ссылку и объект URL после завершения скачивания
   // window.URL.revokeObjectURL(url);
   // document.body.removeChild(a);
-  try{
+  //try{
     let wayL = await makeImage(pointsOnMap);
     console.log(wayL);
     
@@ -448,10 +456,10 @@ document.getElementById('find-way').addEventListener('click', async function() {
     // Добавляем векторный слой на карту
     map.addLayer(vectorLayer);
     way=wayL; // почему-то иначе не работает порядок срабатывания действий : await makeImage - не дожидается выполнения
-    } 
-    catch {
-      alert('Произошла ошибка:');
-    }
+    // } 
+    // catch {
+    //   alert('Произошла ошибка:');
+    // }
   
     // map.setView(new View({
     //   center: way[0],
@@ -516,3 +524,113 @@ document.getElementById('export-way').addEventListener('click', async function()
   }
 });
 
+
+
+async function getWaterBodies(bbox) {
+  const query = `
+      [out:json];
+      (
+        way["natural"="water"](${bbox});
+        relation["natural"="water"](${bbox});
+        way["natural"="wetland"](${bbox});
+        relation["natural"="wetland"](${bbox});
+      );
+      out body;
+      >;
+      out skel qt;
+  `;
+  const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({ data: query }).toString()
+  });
+
+  if (!response.ok) {
+      throw new Error('Failed to fetch data from Overpass API');
+  }
+
+  return await response.json();
+}
+
+// function osmToGeoJSON(osmData) {
+//   const geojson = {
+//       type: "FeatureCollection",
+//       features: osmData.elements.map(element => {
+//           const coordinates = element.geometry.map(coord => [coord.lon, coord.lat]);
+//           return {
+//               type: "Feature",
+//               geometry: {
+//                   type: element.type === "way" ? "Polygon" : "MultiPolygon",
+//                   coordinates: element.type === "way" ? [coordinates] : [[coordinates]]
+//               },
+//               properties: {
+//                   id: element.id,
+//                   type: element.type
+//               }
+//           };
+//       })
+//   };
+//   return geojson;
+// }
+
+function pointInPolygon(point, vs) {
+  var x = point[0], y = point[1];
+  var inside = false;
+  for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      var xi = vs[i][0], yi = vs[i][1];
+      var xj = vs[j][0], yj = vs[j][1];
+      var intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+async function createWaterMatrix(topLeft, bottomRight, rows, cols) {
+  const tileWidth = (bottomRight[0] - topLeft[0]) / cols;
+  const tileHeight = (topLeft[1] - bottomRight[1]) / rows;
+  const bbox = `${bottomRight[1]},${topLeft[0]},${topLeft[1]},${bottomRight[0]}`;
+
+  const osmData = await getWaterBodies(bbox);
+  const nodesMap = new Map();
+  osmData.elements.forEach(el => {
+      if (el.type === 'node') {
+          nodesMap.set(el.id, [el.lon, el.lat]);
+      }
+  });
+
+  const waterBodies = osmData.elements.filter(el => el.type === 'way' || el.type === 'relation');
+  
+  const waterMatrix = Array.from({ length: rows }, () => Array(cols).fill(false));
+
+  for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+          const x = topLeft[0] + c * tileWidth;
+          const y = topLeft[1] - r * tileHeight;
+
+          for (const waterBody of waterBodies) {
+              const nodes = waterBody.nodes || (waterBody.members && waterBody.members.filter(m => m.type === 'way').flatMap(m => m.nodes)) || [];
+              if (nodes.length > 0) {
+                  const polygon = nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
+                  if (polygon.length > 0 && pointInPolygon([x, y], polygon)) {
+                      waterMatrix[r][c] = true;
+                  }
+              }
+          }
+      }
+  }
+
+  return waterMatrix;
+}
+
+// document.getElementById('aaa').addEventListener('click', async function() {
+// // Пример использования:
+// const topLeft = [37.606, 55.72]; // координаты в проекции карты
+// const downRight = [37.63, 55.703]; // координаты в проекции карты
+// getWaterBodies(topLeft, downRight).then(data => {
+//     console.log(data); // Обработка данных
+// }).catch(err => {
+//     console.error(err);
+// });
+// });

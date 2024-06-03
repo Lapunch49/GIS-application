@@ -63,7 +63,7 @@ class Grid {
     end = [];
     _arr=[];
 
-    constructor(columns, rows, start, end, matrix) {
+    constructor(columns, rows, start, end, matrix, waterMatrix) {
         this.columns = columns;
         this.rows = rows;
 
@@ -96,7 +96,7 @@ class Grid {
         for (let i = 0; i < columns; i++) {
             let temp = [];
             for (let j = 0; j < rows; j++) {
-                let cell = new Cell(i, j, matrix[j][i], ++c);
+                let cell = new Cell(i, j, matrix[j][i], ++c, waterMatrix[j][i]);
                 if ((i == start[0]) && (j == start[1])) cell.is_start = true;
                 if ((i == end[0]) && (j == end[1])) cell.is_end = true;
 
@@ -152,12 +152,13 @@ class Grid {
 };
 
 
-function Cell(x, y, h, id) {
+function Cell(x, y, h, id, isWater) {
     this.x = x;
     this.y = y;
     this.h = h;
     this.id = id;
-    this.isObstacle = false;
+    this.isWater = isWater;
+    this.isObstacle = isWater;
 
     // in the simplest words this is the distance from the starting cell to the current cell
     this.gScore = Infinity;
