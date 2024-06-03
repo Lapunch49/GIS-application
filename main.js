@@ -11,10 +11,20 @@ import VectorLayer from 'ol/layer/Vector.js';
 import { createXYZ } from 'ol/tilegrid';
 //import { fromEPSGCode } from 'ol/proj/proj4.js';
 import {Grid, a_star} from './algorithm.js';
-import { fromLonLat } from 'ol/proj.js';
+import { fromLonLat, toLonLat } from 'ol/proj.js';
+import GeoJSON from 'ol/format/GeoJSON.js';
+import togpx from 'togpx/togpx.js';
 
 const pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
+let way  = []; // путь на карте (массив точек в формате географических координат)
+
+// Пример массива координат маршрута
+const coordinates__ = [
+  [37.7749, -122.4194], // Пример: Сан-Франциско
+  [34.0522, -118.2437], // Пример: Лос-Анджелес
+  [36.1699, -115.1398]  // Пример: Лас-Вегас
+];
 
 /**
  * Generates a shaded relief image given elevation data.  Uses a 3x3
@@ -307,7 +317,7 @@ async function makeImage(pointsArr){
 
   });
 
-  await loadAllTiles();
+  await loadAllTiles().then();
   // возвращаем путь в координатах проекции карты(EPSG:4326)
   return pathOnMap;
 }
@@ -412,13 +422,13 @@ document.getElementById('find-way').addEventListener('click', async function() {
   // // Очищаем ссылку и объект URL после завершения скачивания
   // window.URL.revokeObjectURL(url);
   // document.body.removeChild(a);
-
-    // try{
-    let transformedCoordinates  = await makeImage(pointsOnMap);
-    console.log(transformedCoordinates);
-
-    const pathFeature = new Feature({
-      geometry: new LineString(transformedCoordinates)
+  try{
+    let wayL = await makeImage(pointsOnMap);
+    console.log(wayL);
+    
+    let pathFeature = new Feature({
+      geometry: new LineString(wayL),
+      name: 'Route'
     });
   
     // Создаем слой векторных объектов и добавляем линию
@@ -437,14 +447,72 @@ document.getElementById('find-way').addEventListener('click', async function() {
     });
     // Добавляем векторный слой на карту
     map.addLayer(vectorLayer);
-    // } 
-    // catch {
-    //   alert('Произошла ошибка:');
-    // }
+    way=wayL; // почему-то иначе не работает порядок срабатывания действий : await makeImage - не дожидается выполнения
+    } 
+    catch {
+      alert('Произошла ошибка:');
+    }
   
     // map.setView(new View({
-    //   center: transformedCoordinates[0],
+    //   center: way[0],
     //   zoom: 15,
     // }),)
   
-})
+});
+
+document.getElementById('export-way').addEventListener('click', async function() {
+  try{
+    if (way.length > 0){
+      let pathLonLat = [];
+      // переводим путь из геграфических координат в формат [долгота, широта]
+      way.forEach((coord)=>{ 
+        pathLonLat.push(toLonLat(coord));
+      });
+
+      // Создаем объект LineString из координат
+      const lineString = new LineString(pathLonLat);
+
+      // Создаем объект Feature с геометрией LineString
+      const feature = new Feature({
+        geometry: lineString,
+        name: 'Route'
+      });
+
+      // Преобразуем Feature в формат GeoJSON
+      const geojsonFormat = new GeoJSON();
+      const geojson = geojsonFormat.writeFeatureObject(feature);
+
+      // Преобразуем GeoJSON в GPX
+      function geojsonToGpx(geojson) {
+        const gpxHeader = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <gpx version="1.1" creator="OpenLayers">
+      <trk><name>Route</name><trkseg>`;
+        const gpxFooter = `</trkseg></trk></gpx>`;
+        const gpxContent = geojson.geometry.coordinates.map(coord => {
+            return `<trkpt lat="${coord[1]}" lon="${coord[0]}"></trkpt>`;
+        }).join('\n');
+        return gpxHeader + gpxContent + gpxFooter;
+      }
+
+      const gpx = geojsonToGpx(geojson);
+
+      // Функция для загрузки GPX файла
+      function download(content, fileName, contentType) {
+        const a = document.createElement("a");
+        const file = new Blob([content], { type: contentType });
+        a.href = URL.createObjectURL(file);
+        a.download = fileName;
+        a.click();
+      } 
+      // Скачиваем GPX файл
+      download(gpx, 'route.gpx', 'application/gpx+xml');
+    }
+    else{
+        alert('Путь не сформирован!');
+    }
+  }
+  catch(error){
+    alert('Не удалось скачать', error);
+  }
+});
+
