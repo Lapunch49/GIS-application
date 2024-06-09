@@ -1,6 +1,7 @@
 {
     "name": "shaded-relief",
     "dependencies": {
+        "@turf/turf": "^6.5.0",
         "ol": "9.1.0",
         "togpx": "^0.5.4"
     },

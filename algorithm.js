@@ -27,8 +27,13 @@ function heuristic(node, goal, zoom, grid) {
     //return Math.abs(current.x - end.x) + Math.abs(current.y - end.y);
 };
 
-function tentativeG(current, neighbor, grid, zoom){
-    const delta = Math.abs(current.h - neighbor[0].h); // slope, triangle catheter
+function tentativeG(current, neighbor, grid, zoom, kMountain){
+    let delta = current.h - neighbor[0].h; // slope, triangle catheter
+    if (delta < 0 ){
+        delta = Math.abs(delta)*kMountain;
+    } else{
+        delta = Math.abs(delta);
+    }
     let delta_gScore;
 
     // delta = 0;
@@ -63,7 +68,7 @@ class Grid {
     end = [];
     _arr=[];
 
-    constructor(columns, rows, start, end, matrix, waterMatrix) {
+    constructor(columns, rows, start, end, matrix, waterMatrix, forestMatrix) {
         this.columns = columns;
         this.rows = rows;
 
@@ -96,7 +101,7 @@ class Grid {
         for (let i = 0; i < columns; i++) {
             let temp = [];
             for (let j = 0; j < rows; j++) {
-                let cell = new Cell(i, j, matrix[j][i], ++c, waterMatrix[j][i]);
+                let cell = new Cell(i, j, matrix[j][i], ++c, waterMatrix[j][i], forestMatrix[j][i]);
                 if ((i == start[0]) && (j == start[1])) cell.is_start = true;
                 if ((i == end[0]) && (j == end[1])) cell.is_end = true;
 
@@ -152,12 +157,13 @@ class Grid {
 };
 
 
-function Cell(x, y, h, id, isWater) {
+function Cell(x, y, h, id, isWater, isForest) {
     this.x = x;
     this.y = y;
     this.h = h;
     this.id = id;
     this.isWater = isWater;
+    this.isForest = isForest;
     this.isObstacle = isWater;
 
     // in the simplest words this is the distance from the starting cell to the current cell
@@ -209,7 +215,7 @@ function finish(current, cameFrom) {
     return res;
 };
 
-function a_star (grid, zoom){
+function a_star (grid, zoom, kMountain, kForest){
 	while (grid.openSet.length){
 		// the cell with the lowest f-score 
 		let current = grid.lowest_f();
@@ -245,7 +251,7 @@ function a_star (grid, zoom){
       }
 
 			// as each cell has a distance of 1 unit, the next g-score will be the current g-score + 1
-			let tentative_g = tentativeG(current, neighbor, grid, zoom);
+			let tentative_g = tentativeG(current, neighbor, grid, zoom, kMountain);
         
 			if (tentative_g >= neighbor[0].gScore){
 				continue;
