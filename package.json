@@ -3,6 +3,7 @@
     "dependencies": {
         "@turf/turf": "^6.5.0",
         "ol": "9.1.0",
+        "osmtogeojson": "^3.0.0-beta.5",
         "togpx": "^0.5.4"
     },
     "devDependencies": {
