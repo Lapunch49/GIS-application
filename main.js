@@ -10,20 +10,17 @@ import { Stroke, Style } from 'ol/style';
 import VectorLayer from 'ol/layer/Vector.js';
 //import { get as getProjection,fromLonLat,toLonLat  } from 'ol/proj';
 import { createXYZ } from 'ol/tilegrid';
-//import { fromEPSGCode } from 'ol/proj/proj4.js';
 import {Grid, a_star} from './algorithm.js';
-import { fromLonLat, toLonLat } from 'ol/proj.js';
+import { toLonLat } from 'ol/proj.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
-import togpx from 'togpx/togpx.js';
-import {bbox as bboxStrategy} from 'https://cdn.jsdelivr.net/npm/ol/loadingstrategy.js';
 //import { polygon, point, booleanPointInPolygon, intersect } from '@turf/turf';
-import { polygon, intersect, point, booleanPointInPolygon } from '@turf/turf';
+import { lineString, lineSplit, intersect} from '@turf/turf';
 import osmtogeojson from 'osmtogeojson';
 
 const pointsOnMap = [];
-let ZOOM = 14; // уровень масштабирования для алгоритма
+let ZOOM = 15; // уровень масштабирования для алгоритма
 let way  = []; // путь на карте (массив точек в формате географических координат)
-let kMountain=2; //0 и 1
+let kMountain=2; //1,2,4
 let kForest = 2; //1, 2, 4
 let startTime = 0;
 let endTime = 0;
@@ -148,11 +145,9 @@ function shade(inputs, data) {
 }
 
 // Вычисляем положение точек внутри изображения (из координат в пиксели)
-function findPixelsCoords(coordinatesAll,topLeft, tileWidth, tileHeight, width, height){
+function findPixelsCoords(coordinatesAll,topLeft, tileWidth, tileHeight, width, height){ // здесь tileWidth, tileHeight - размеры сторон тайлов
   let pixelsAll =[];
-  for (let i=0; i<coordinatesAll.length; i++){
-    let x=coordinatesAll[i][0];
-    let y=coordinatesAll[i][1];
+  for (const [x, y] of coordinatesAll){
     const pixelX = Math.floor((x - topLeft[0]) / tileWidth * width);
     const pixelY = Math.floor((topLeft[1] - y) / tileHeight * height);
     pixelsAll.push([pixelX,pixelY])
@@ -243,16 +238,10 @@ async function makeImage(pointsArr){
   const tileWidth = extentMax[2]-extentMin[0];
   const tileHeight = extentMin[3]-extentMax[1];
 
-  const waterTags = [{ key: 'natural', value: 'water' }, {key: 'waterway',  value: '*'}, {key: 'natural', value: 'wetland' }];
+  const waterTags = [{ key: 'natural', value: 'water' }, {key: 'natural', value: 'wetland' }];
   const forestTags = [{ key: 'landuse', value: 'forest' }, { key: 'natural', value: 'wood' }];
   const waterwayTags = [
-    { key: 'waterway', value: 'river' },
-    { key: 'waterway', value: 'canal' },
-    { key: 'waterway', value: 'stream' },
-    { key: 'waterway', value: 'ditch' },
-    { key: 'waterway', value: 'drain' },
-    { key: 'waterway', value: 'brook' },
-    { key: 'waterway', value: 'rapids' }
+    { value:'waterway'}
   ];
 
   let waterMatrix=[];
@@ -261,14 +250,21 @@ async function makeImage(pointsArr){
   
   // let obstacleMatrix = Array.from({ length: width }, () => Array(height).fill(false));
   // waterMatrix = await geoJsonToMatrix(topLeftLonLat, downRightLonLat, height, width, waterTags, obstacleMatrix)
+  //console.log('Water Query:');
   waterMatrix = await createMatrix(topLeftLonLat, downRightLonLat, height, width, waterTags);
 
-  // waterwayMatrix = await createMatrix(topLeftLonLat, downRightLonLat, height, width, waterwayTags);
-  // console.log('Waterway Matrix:', waterwayMatrix);
-
-  // forestMatrix = waterwayMatrix;
+  waterwayMatrix = await createMatrixForWay(topLeftLonLat, downRightLonLat, height, width, waterwayTags);
+  //console.log('Waterway Query:');
 
   forestMatrix = await createMatrix(topLeftLonLat, downRightLonLat, height, width, forestTags);
+  //console.log('Forest Query:');
+
+  // объединяем инфу обо всех водных объектах в waterMatrix
+  for (let i=0; i<height; i++){
+    for (let j=0; j<width; j++){
+      waterMatrix[i][j] = waterMatrix[i][j] || (waterwayMatrix[i][j]);
+    }
+  }
 
   // Вычисляем координаты наших точек на изображении
   const pointsArrPixels = findPixelsCoords(pointsArr,topLeft,tileWidth,tileHeight, width, height);
@@ -311,9 +307,9 @@ async function makeImage(pointsArr){
   // создадим сетки для каждой части пути(для каждой пары начала и конца пути)
   let grids = []; 
   for (let i=0; i<pointsArrPixels.length-1; i++){
-    // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbsacle и др.
+    // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbstacle и др.
     // также для каждой сетки известны свои координаты начала и конца пути(для каждой пары точек)
-    let grid=new Grid(width, height,pointsArrPixels[i], pointsArrPixels[i+1], matrix, waterMatrix, forestMatrix );
+    let grid=new Grid(width, height, pointsArrPixels[i], pointsArrPixels[i+1], matrix, waterMatrix, forestMatrix );
     grids.push(grid);
   }
   // для каждой пары точек находим мин. путь
@@ -352,7 +348,7 @@ async function makeImage(pointsArr){
     // соединяем с посл. точкой
     pathOnMap.push(pointsArr[pointsArr.length-1]);
 
-    console.log(pathOnMap);
+    //console.log(pathOnMap);
   }
   // если какой-то путь не был найден
   else{
@@ -456,7 +452,7 @@ document.getElementById('find-way').addEventListener('click', async function() {
     startTime = performance.now();
     let [wayL,topLeft, downRight] = await makeImage(pointsOnMap);
     endTime = performance.now();
-    console.log(wayL);
+    console.log("Кол-во точек маршрута:", wayL.length);
     // Вычисление и вывод времени выполнения
     const timeTaken = endTime - startTime;
     console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
@@ -663,13 +659,12 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
   const tileHeight = (topLeft[1] - bottomRight[1]) / rows;
   const bbox = `${bottomRight[1]},${topLeft[0]},${topLeft[1]},${bottomRight[0]}`;
   const bboxA = [topLeft[0], bottomRight[1], bottomRight[0], topLeft[1]];
-  // bottomRight = fromLonLat(bottomRight);
-  // topLeft = fromLonLat(topLeft);
   const bboxPolygon = bboxPolygon_(bboxA);
   // Функция для обрезки полигона по границам bbox
 
   const osmData = await getLanduseData(bbox, landuseTags);
 
+  // Создание карты узлов для быстрого доступа
   const nodesMap = new Map();
   osmData.elements.forEach(el => {
       if (el.type === 'node') {
@@ -677,8 +672,6 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
       }
   });
 
-  //--------------------------------------------------------------------------------------------
-  // новый способ
   // Преобразуем данные в GeoJSON
   const geojson = osmtogeojson(osmData);
 
@@ -717,14 +710,14 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
     }
   });
 
-  // Получаем данные изображения в формате PNG
-  const dataURL = canvas.toDataURL('image/png');
+  // // Получаем данные изображения в формате PNG
+  // const dataURL = canvas.toDataURL('image/png');
 
-  // Скачиваем изображение
-  const link = document.createElement('a');
-  link.href = dataURL;
-  link.download = 'water.png';
-  link.click();
+  // // Скачиваем изображение
+  // const link = document.createElement('a');
+  // link.href = dataURL;
+  // link.download = 'water.png';
+  // link.click();
 
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
@@ -739,103 +732,97 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
           const g = data[index + 1];
           const b = data[index + 2];
           
-          // Проверяем, если пиксель белый (r, g, b == 255)
+          // Проверяем, если пиксель белый (r, g, b == 255), то препятствие на этом месте есть
           if (r === 255 && g === 255 && b === 255) {
               matrix[y][x] = true;
           }
       }
   }
 
-  //--------------------------------------------------------------------------------------------
+  return matrix;
+}
 
-  //--------------------------------------------------------------------------------------------
-  // медленный способ
-  // const landuseAreas = osmData.elements.filter(el => el.type === 'way' || el.type === 'relation');
-  
-  // const matrix = Array.from({ length: rows }, () => Array(cols).fill(false));
+async function getWaysData(bbox, tags) {
+  const query = `
+      [out:json];
+      (
+        ${tags.map(tag =>`way["${tag.value}"](${bbox});`).join('')}
+      );
+      out body;
+      >;
+      out skel qt;
+  `;
+  console.log(query);
+  const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({ data: query }).toString()
+  });
 
-  // for (let r = 0; r < rows; r++) {
-  //     for (let c = 0; c < cols; c++) {
-  //         const x = topLeft[0] + c * tileWidth;
-  //         const y = topLeft[1] - r * tileHeight;
+  if (!response.ok) {
+      throw new Error('Failed to fetch data from Overpass API');
+  }
 
-  //         for (const area of landuseAreas) {
-  //             const nodes = area.nodes || (area.members && area.members.filter(m => m.type === 'way').flatMap(m => m.nodes)) || [];
-  //             if (nodes.length > 0) {
-  //                 const polygon = nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
-  //                 if (polygon.length > 0 && pointInPolygon([x, y], polygon)) {
-  //                     matrix[r][c] = true;
-  //                 }
-  //             }
-  //         }
-  //     }
-  // }
-  //--------------------------------------------------------------------------------------------
-
-  //--------------------------------------------------------------------------------------------
-  // не очень медленный способ
-  // const landuseAreas = intersectedGeoJSON.elements.filter(el => el.type === 'way' || el.type === 'relation');
-  // const polygons = landuseAreas.map(area => {
-  //     const nodes = area.nodes || (area.members && area.members.filter(m => m.type === 'way').flatMap(m => m.nodes)) || [];
-  //     if (nodes.length > 0) {
-  //         const polygonCoords = nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
-  //         if (polygonCoords.length > 4) { // Check if there are enough coordinates to form a polygon
-  //             // Ensure the polygon is closed
-  //             if (polygonCoords[0][0] !== polygonCoords[polygonCoords.length - 1][0] ||
-  //                 polygonCoords[0][1] !== polygonCoords[polygonCoords.length - 1][1]) {
-  //                 polygonCoords.push(polygonCoords[0]);
-  //             }
-  //             return polygon([polygonCoords]);
-  //         }
-  //     }
-  //     return null;
-  // }).filter(Boolean);
-
-  // const matrix = Array.from({ length: rows }, () => Array(cols).fill(false));
-
-  // for (let r = 0; r < rows; r++) {
-  //     for (let c = 0; c < cols; c++) {
-  //         const x = topLeft[0] + c * tileWidth;
-  //         const y = topLeft[1] - r * tileHeight;
-
-  //         const pointCoord = point([x, y]);
-  //         for (const polygon of polygons) {
-  //             if (booleanPointInPolygon(pointCoord, polygon)) {
-  //               if ((r==0 ||  r==(rows-1)) && (c==0 || c==(cols-1)))
-  //                 {
-  //                   console.log(polygon);
-  //                 }
-  //                 matrix[r][c] = true;
-  //                 break; // Once we know the cell is true, we can break out of the loop
-  //             }
-  //         }
-  //     }
-  // }
-  //--------------------------------------------------------------------------------------------
+  return await response.json();
+}
 
 
+function drawLine(context, pixels) {
+  context.beginPath();
+  context.moveTo(pixels[0][0], pixels[0][1]);
+  for (let i = 1; i < pixels.length; i++) {
+      context.lineTo(pixels[i][0], pixels[i][1]);
+  }
+  context.strokeStyle = 'white';
+  context.lineWidth = 2;
+  context.stroke();
+}
+
+async function createMatrixForWay(topLeft, bottomRight, rows, cols, landuseTags) {
+  const tileWidth = (bottomRight[0] - topLeft[0]);
+  const tileHeight = (topLeft[1] - bottomRight[1]);
+  const bbox = `${bottomRight[1]},${topLeft[0]},${topLeft[1]},${bottomRight[0]}`;
+  const bboxA = [topLeft[0], bottomRight[1], bottomRight[0], topLeft[1]];
+  const bboxPolygon = bboxPolygon_(bboxA);
+  // Функция для обрезки полигона по границам bbox
+
+  const osmData = await getWaysData(bbox, landuseTags);
+
+  // Создание карты узлов для быстрого доступа
+  const nodesMap = new Map();
+  osmData.elements.forEach(el => {
+      if (el.type === 'node') {
+          nodesMap.set(el.id, [el.lon, el.lat]);
+      }
+  });
+
+  const waterways = osmData.elements.filter(el => el.type === 'way');
 
   // Создание изображения и отображение точек
-  // const width = cols;
-  // const height = rows;
-  // const canvas = document.createElement('canvas');
-  // canvas.width = width;
-  // canvas.height = height;
-  // const context = canvas.getContext('2d');
+  const width = cols;
+  const height = rows;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
 
-  // // Заполняем фон черным цветом
-  // context.fillStyle = 'black';
-  // context.fillRect(0, 0, width, height);
+  // Заполняем фон черным цветом
+  context.fillStyle = 'black';
+  context.fillRect(0, 0, width, height);
 
-  // // Рисуем белые точки
-  // context.fillStyle = 'white';
-  // for (let i = 0; i < rows; i++) {
-  //     for (let j = 0; j < cols; j++) {
-  //         if (matrix[i][j]) {
-  //             context.fillRect(j, i, 1, 1); // Рисуем точку размером 1x1 пиксель
-  //         }
-  //     }
-  // }
+  waterways.forEach(way => {
+    const nodes = way.nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
+    const wayLine = lineString(nodes);
+        // Обрезка линии по bbox
+        const clipped = lineSplit(wayLine, bboxPolygon);
+        clipped.features.forEach(segment => {
+            const coords = segment.geometry.coordinates;
+            const pixels = findPixelsCoords(coords, topLeft, tileWidth, tileHeight, width, height);
+            drawLine(context, pixels);
+        });
+  });
 
   // // Получаем данные изображения в формате PNG
   // const dataURL = canvas.toDataURL('image/png');
@@ -843,9 +830,28 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
   // // Скачиваем изображение
   // const link = document.createElement('a');
   // link.href = dataURL;
-  // link.download = 'water.png';
+  // link.download = 'waterway.png';
   // link.click();
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  // создаем копию изображения в виде матрицы, если пиксель белый, то ячейка true
+  const matrix = Array.from({ length: height }, () => Array(width).fill(true));
+
+  for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4; // Индекс в массиве данных (RGBA)
+          const r = data[index];
+          const g = data[index + 1];
+          const b = data[index + 2];
+          
+          // Проверяем, если пиксель черный (r, g, b == 0)
+          if (r === 0 && g === 0 && b === 0) {
+              matrix[y][x] = false;
+          }
+      }
+  }
 
   return matrix;
 }
-

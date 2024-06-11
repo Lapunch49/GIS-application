@@ -27,11 +27,12 @@ function heuristic(node, goal, zoom, grid) {
     //return Math.abs(current.x - end.x) + Math.abs(current.y - end.y);
 };
 
-function tentativeG(current, neighbor, grid, zoom, kMountain){
-    let delta = current.h - neighbor[0].h; // slope, triangle catheter
-    if (delta < 0 ){
+function tentativeG(current, neighbor, dictZoomPixelLen, zoom, kMountain){
+    // delta_gScore - стоимость перехода из current в neighbor
+    let delta = current.h - neighbor[0].h; // катет прям. треугольника
+    if (delta < 0 ){ // подъем в гору
         delta = Math.abs(delta)*kMountain;
-    } else{
+    } else{ // спуск с горы
         delta = Math.abs(delta);
     }
     let delta_gScore;
@@ -41,9 +42,9 @@ function tentativeG(current, neighbor, grid, zoom, kMountain){
     // pixelDiagonal=Math.sqrt(2);
 
     if (neighbor[1] == 1){ // forward heighbor
-        delta_gScore = Math.sqrt(Math.pow(grid.dictZoomPixelLen.get(zoom),2) + delta*delta);
+        delta_gScore = Math.sqrt(Math.pow(dictZoomPixelLen.get(zoom),2) + delta*delta);
     } else{ // diagonal neighobor
-        delta_gScore = Math.sqrt(Math.pow(grid.dictZoomPixelLen.get(zoom)*Math.sqrt(2),2) + delta*delta);
+        delta_gScore = Math.sqrt(Math.pow(dictZoomPixelLen.get(zoom)*Math.sqrt(2),2) + delta*delta);
     }
     return current.gScore + delta_gScore;
     //return 0;
@@ -251,7 +252,7 @@ function a_star (grid, zoom, kMountain, kForest){
       }
 
 			// as each cell has a distance of 1 unit, the next g-score will be the current g-score + 1
-			let tentative_g = tentativeG(current, neighbor, grid, zoom, kMountain);
+			let tentative_g = tentativeG(current, neighbor, grid.dictZoomPixelLen, zoom, kMountain);
         
 			if (tentative_g >= neighbor[0].gScore){
 				continue;
