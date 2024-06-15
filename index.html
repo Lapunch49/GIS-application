@@ -2,27 +2,29 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <title>Shaded Relief</title>
+    <title>GIS-приложение для поиска минимального пути на пересеченной местности</title>
     <link rel="stylesheet" href="node_modules/ol/ol.css">
     <link rel="stylesheet" href="style.css">
-    <!-- <script type="module" src="algorithm.js"></script> -->
-    <!-- <script type="text/javascript" src="main.js"></script>  -->
-    <!-- <script type="text/javascript" src="algorithm.js"></script> -->
   </head>
   <body>
-    <!-- <header>
-      <h1>GIS-приложение для поиска минимального пути на пересеченной местности</h1>
-  </header> -->
   <div class="container">
       <aside>
           <h2>Настройка маршрута</h2>
           <div class="slider-container">
               <label for="zoomSlider">Zoom сетки</label>
-              <input type="range" id="zoomSlider" min="13" max="15" step="1" value="15">
+              <input type="range" id="zoomSlider" min="10" max="15" step="1" value="15">
+              <datalist id="tickmarks">
+                <option value="10" label="10"></option>
+                <option value="11" label="11"></option>
+                <option value="12" label="12"></option>
+                <option value="13" label="13"></option>
+                <option value="14" label="14"></option>
+                <option value="15" label="15"></option>
+              </datalist>
           </div>
           <div class="slider-container">
               <label for="mountainSlider">Горы</label>
-              <input type="range" id="mountainSlider" min="0" max="1" step="1" value = "0">
+              <input type="range" id="mountainSlider" min="1" max="25" step="8" value = "0">
               <div class="slider-labels">
                   <span>слабо учитывать</span>
                   <span>стараться не подниматься</span>
@@ -30,91 +32,56 @@
           </div>
           <div class="slider-container">
               <label for="forestSlider">Леса</label>
-              <input type="range" id="forestSlider" min="0" max="2" step="1">
+              <input type="range" id="forestSlider" min="0" max="3" step="1">
               <div class="slider-labels">
                   <span>слабо учитывать</span>
                   <span>сделать препятствием</span>
               </div>
+          <br>
+          <!--<br>
+          <br> -->
+          <h2>Окно поиска</h2>
+          <div class="button-group">
+              <button class="btn-small" id = "window-plus">+</button>
+              <button class="btn-small" id = "window-minus">-</button>
+              <button class="btn-large" id = "btn-rec-visible">Скрыть/Показать</button>
+          </div>
+          <div class="button-labels">
+              <span>Увеличить/Уменьшить окно просмотра</span>
+          </div>
+          <br>
+          <br>
+          <!-- <br> -->
           </div>
           <button id="find-way"  class="btn btn-green">Найти путь</button>
           <button id="export-way" class="btn btn-blue">Загрузить маршрут в формате gpx</button>
-          <div><table>
-            <tr><td>ff</td></tr>
-
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-
-            <tr></tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <!-- <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-            <tr><td>ff</td></tr>
-             -->
-          </table></div>
+          <button id="clear-all" class="btn btn-red">Очистить все</button>
+          
           <div class="bottom">
               <h2>Настройка отображения рельефа</h2>
-              <!-- <div class="slider-container">
-                  <label for="vert">Тень</label>
-                  <input id="vert" type="range" min="1" max="5" value="5">
-              </div>
-              <div class="slider-container">
-                  <label for="sunEl">Высота солнца</label>
-                  <input id="sunEl" type="range" min="0" max="90" value="45"/>
-              </div>
-              <div class="slider-container">
-                <label for="sunAz">Азимут солнца</label>
-                <input id="sunAz" type="range" min="0" max="360" value="45"/>
-              </div> -->
               <table class="controls">
               <tr>
-                <label for="vert">Тень: </label> <td><span id="vertOut"></span> x</td>
+                <label for="vert">Тень: </label>
                 <input id="vert" type="range" min="1" max="5" value="5"/>
                 
               </tr> 
               <tr>
-                <label for="sunEl">Высота солнца: </label> <td><span id="sunElOut"></span> °</td>
+                <label for="sunEl">Высота солнца: </label> 
                 <input id="sunEl" type="range" min="0" max="90" value="45"/>
                 
               </tr>
               <tr>
-                <label for="sunAz">Азимут солнца: </label> <td><span id="sunAzOut"></span> °</td>
+                <label for="sunAz">Азимут солнца: </label>
                 <input id="sunAz" type="range" min="0" max="360" value="45"/>
               </tr>
             </table>
+            <br>
           </div>
       </aside>
-      <div id="map" class="map"></div>
+      <div id="map" class="map">
+        
+      </div>
   </div>
-    <!-- <div id="map" class="map"></div>
-    <table class="controls">
-      <a id="find-way" class="button" role="button"> Найти минимальный путь</a>
-      <a id="export-way" class="button" role="button"> Экспортировать путь в формате gpx</a>
-      <tr>
-        <td><label for="vert">vertical exaggeration:</label></td>
-        <td><input id="vert" type="range" min="1" max="5" value="5"/></td>
-        <td><span id="vertOut"></span> x</td>
-      </tr>
-      <tr>
-        <td><label for="sunEl">sun elevation:</label></td>
-        <td><input id="sunEl" type="range" min="0" max="90" value="45"/></td>
-        <td><span id="sunElOut"></span> °</td>
-      </tr>
-      <tr>
-        <td><label for="sunAz">sun azimuth:</label></td>
-        <td><input id="sunAz" type="range" min="0" max="360" value="45"/></td>
-        <td><span id="sunAzOut"></span> °</td>
-      </tr>
-    </table>
-    <a id="image-download" download="map.png"></a> -->
-
     <script type="module" src="main.js"></script>
   </body>
 </html>

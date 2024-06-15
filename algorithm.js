@@ -27,24 +27,23 @@ function heuristic(node, goal, zoom, grid) {
     //return Math.abs(current.x - end.x) + Math.abs(current.y - end.y);
 };
 
-function tentativeG(current, neighbor, dictZoomPixelLen, zoom, kMountain){
+function tentativeG(current, neighbor, dictZoomPixelLen, zoom, kMountain, kForest){
     // delta_gScore - стоимость перехода из current в neighbor
     let delta = current.h - neighbor[0].h; // катет прям. треугольника
-    if (delta < 0 ){ // подъем в гору
-        delta = Math.abs(delta)*kMountain;
-    } else{ // спуск с горы
-        delta = Math.abs(delta);
-    }
+    
+    delta = Math.abs(delta)*kMountain*4;
+    
     let delta_gScore;
-
-    // delta = 0;
-    // pixelLength =1;
-    // pixelDiagonal=Math.sqrt(2);
-
     if (neighbor[1] == 1){ // forward heighbor
         delta_gScore = Math.sqrt(Math.pow(dictZoomPixelLen.get(zoom),2) + delta*delta);
     } else{ // diagonal neighobor
         delta_gScore = Math.sqrt(Math.pow(dictZoomPixelLen.get(zoom)*Math.sqrt(2),2) + delta*delta);
+    }
+    // // увеличиваем стоимость при подъёме/спуске (в горной местности) 
+    // delta_gScore += dictZoomPixelLen.get(zoom);
+    // увеличиваем стоимость, если путь проходит по лесу (в зависимости от полученного коэф.)
+    if (neighbor[0].isForest){
+        delta_gScore += kForest*dictZoomPixelLen.get(zoom);
     }
     return current.gScore + delta_gScore;
     //return 0;
@@ -242,7 +241,7 @@ function a_star (grid, zoom, kMountain, kForest){
 			}
 
 			// if the neighbor[0] is an obstacle or if it bas already been anayzed, skip this cell
-			if (grid.closedSet.includes(neighbor[0]) || neighbor[0].isObstacle){
+			if (grid.closedSet.includes(neighbor[0]) || neighbor[0].isObstacle || (neighbor[0].isForest && kForest==3)){
 				continue;
 			}
 
@@ -252,7 +251,7 @@ function a_star (grid, zoom, kMountain, kForest){
       }
 
 			// as each cell has a distance of 1 unit, the next g-score will be the current g-score + 1
-			let tentative_g = tentativeG(current, neighbor, grid.dictZoomPixelLen, zoom, kMountain);
+			let tentative_g = tentativeG(current, neighbor, grid.dictZoomPixelLen, zoom, kMountain, kForest);
         
 			if (tentative_g >= neighbor[0].gScore){
 				continue;

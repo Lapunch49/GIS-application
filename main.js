@@ -6,7 +6,7 @@ import Feature from 'ol/Feature.js';
 import Point from 'ol/geom/Point.js';
 import Polygon from 'ol/geom/Polygon.js';
 import LineString from 'ol/geom/LineString';
-import { Stroke, Style } from 'ol/style';
+import { Stroke, Style, Icon } from 'ol/style';
 import VectorLayer from 'ol/layer/Vector.js';
 //import { get as getProjection,fromLonLat,toLonLat  } from 'ol/proj';
 import { createXYZ } from 'ol/tilegrid';
@@ -14,16 +14,55 @@ import {Grid, a_star} from './algorithm.js';
 import { toLonLat } from 'ol/proj.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
 //import { polygon, point, booleanPointInPolygon, intersect } from '@turf/turf';
-import { lineString, lineSplit, intersect} from '@turf/turf';
+import { lineString, lineSplit, intersect, bbox} from '@turf/turf';
 import osmtogeojson from 'osmtogeojson';
 
-const pointsOnMap = [];
+// изображение для иконки маркера
+const markerIconURL = 'https://maps.google.com/mapfiles/kml/paddle/red-circle.png';
+const markerStyle = new Style({
+  image: new Icon({
+    anchor: [0.5, 1], // точка привязки иконки (нижняя центральная)
+    src: markerIconURL
+  })
+});
+
+let pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
 let way  = []; // путь на карте (массив точек в формате географических координат)
-let kMountain=2; //1,2,4
+
+let kMountain=1; //1, 2, 4
 let kForest = 2; //1, 2, 4
+
 let startTime = 0;
 let endTime = 0;
+
+let topLeft;// верхний левый угол экстента (в проекции карты)
+let bottomRight; // нижний правый угол экстента (в проекции карты
+
+let tileWidth; // ширина экстента изображения
+let tileHeight; // высота экстента изображения
+
+let width; // ширина окна просмотра (в пикселях)
+let height; // длина окна просмотра (в пикселях)
+
+// индекы верхнего левого и правого нижнего тайлов
+let xMax;
+let xMin;
+let yMax;
+let yMin;
+
+// их копии(нужны для случаев уменьшения окна поиска)
+let xMinConst;
+let yMinConst;
+let xMaxConst;
+let yMaxConst;
+
+// Создаем источник для маркеров
+const vectorSourceMarker = new Vector();
+const vectorSourceWay = new Vector();
+const vectorSourceRectangle = new Vector();
+
+let recVisibleFlag = false; // видимость прям. - окна поиска
 
 /**
  * Generates a shaded relief image given elevation data.  Uses a 3x3
@@ -144,41 +183,20 @@ function shade(inputs, data) {
   return {data: shadeData, width: width, height: height};
 }
 
-// Вычисляем положение точек внутри изображения (из координат в пиксели)
-function findPixelsCoords(coordinatesAll,topLeft, tileWidth, tileHeight, width, height){ // здесь tileWidth, tileHeight - размеры сторон тайлов
-  let pixelsAll =[];
-  for (const [x, y] of coordinatesAll){
-    const pixelX = Math.floor((x - topLeft[0]) / tileWidth * width);
-    const pixelY = Math.floor((topLeft[1] - y) / tileHeight * height);
-    pixelsAll.push([pixelX,pixelY])
-  } 
-  return pixelsAll;
-}
-
-// Вычисляем положение точек внутри изображения (из пикселей в координаты)
-function findCoordsPixels(pixelsAll,topLeft, grid){
-  let coordinatesAll =[];
-  pixelsAll.forEach((pixel)=>{
-      let x = pixel.x*grid.dictZoomPixelLen.get(ZOOM)+topLeft[0];
-      let y = topLeft[1]-pixel.y*grid.dictZoomPixelLen.get(ZOOM);
-      coordinatesAll.push([x,y]);
-    });
-  return coordinatesAll;
-}
-
-async function makeImage(pointsArr){
+// рассчитываем новые topLeft, bottomRight, tileWidth, tileHeight, width, height
+// учитывая все точки-маркеры и уровень zoom
+function updateTileIndexes(){
   const TILE_SIZE = 256;
-  const sourceURL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
   // Создаем TileGrid для уровня масштабирования
   const tileGrid = createXYZ({ maxZoom: ZOOM });
 
   // Получаем индексы тайлов, в которых оказались наши точки
-  let xMax = 0;
-  let xMin = 32768; // максимально возможный +1 индекс тайла для zoom=15
-  let yMax = 0;
-  let yMin = 32768;
-  pointsArr.forEach((point)=>{
+  xMax = 0;
+  xMin = 32768; // максимально возможный +1 индекс тайла для zoom=15
+  yMax = 0;
+  yMin = 32768;
+  pointsOnMap.forEach((point)=>{
     // Получаем индексы тайла, в котором оказалась наша точка
     let [tileIndexX,tileIndexY] = tileGrid.getTileCoordForCoordAndZ(point, ZOOM).slice(1);
     // Обновляем мин. и макс. индексы - граничные индексы тайлов(верхнего левого и правого нижнего), которые будем скачивать
@@ -188,14 +206,145 @@ async function makeImage(pointsArr){
     yMin = Math.min(yMin,tileIndexY);
   });
 
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  xMinConst = xMin;
+  yMinConst = yMin;
+  xMaxConst = xMax;
+  yMaxConst = yMax;
 
   // Размер итогового изображения
-  const width = (xMax - xMin + 1) * TILE_SIZE;
-  const height = (yMax - yMin + 1) * TILE_SIZE;
+  width = (xMax - xMin + 1) * TILE_SIZE;
+  height = (yMax - yMin + 1) * TILE_SIZE;
 
   console.log(width, height);
+
+  // Получаем экстент тайлов topLeft и bottomRight
+  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
+  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
+
+  // Верхний левый угол экстента (в проекции карты)
+  topLeft = [extentMin[0], extentMin[3]];
+  // Нижний правый угол экстента (в проекции карты)
+  bottomRight = [extentMax[2], extentMax[1]];
+
+  //Ширина и высота экстента изображения
+  tileWidth = extentMax[2]-extentMin[0];
+  tileHeight = extentMin[3]-extentMax[1];
+  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+}
+
+function updateTileIndexes_plus(){
+  const TILE_SIZE = 256;
+
+  // Создаем TileGrid для уровня масштабирования
+  const tileGrid = createXYZ({ maxZoom: ZOOM });
+
+  const MaxForZoom = Math.pow(2,ZOOM); // максимально возможный +1 индекс тайла для zoom
+
+  // обновляем размеры, если это возможно
+  if (xMin>=1)
+    xMin -=1;
+  if (yMin>=1)
+    yMin -=1;
+  if (xMax<=MaxForZoom-2){
+    xMax+=1;
+  }
+  if (yMax<=MaxForZoom-2){
+    yMax+=1;
+  }
+  
+  // Размер итогового изображения
+  width = (xMax - xMin + 1) * TILE_SIZE;
+  height = (yMax - yMin + 1) * TILE_SIZE;
+
+  console.log(width, height);
+
+  // Получаем экстент тайлов topLeft и bottomRight
+  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
+  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
+
+  // Верхний левый угол экстента (в проекции карты)
+  topLeft = [extentMin[0], extentMin[3]];
+  // Нижний правый угол экстента (в проекции карты)
+  bottomRight = [extentMax[2], extentMax[1]];
+
+  //Ширина и высота экстента изображения
+  tileWidth = extentMax[2]-extentMin[0];
+  tileHeight = extentMin[3]-extentMax[1];
+  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+}
+
+function updateTileIndexes_minus(){
+  const TILE_SIZE = 256;
+
+  // Создаем TileGrid для уровня масштабирования
+  const tileGrid = createXYZ({ maxZoom: ZOOM });
+
+  // обновляем размеры, если это возможно
+  if (xMin<xMinConst)
+    xMin +=1;
+  if (yMin<yMinConst)
+    yMin +=1;
+  if (xMax>xMaxConst){
+    xMax -=1;
+  }
+  if (yMax>yMaxConst){
+    yMax -=1;
+  }
+  
+  // Размер итогового изображения
+  width = (xMax - xMin + 1) * TILE_SIZE;
+  height = (yMax - yMin + 1) * TILE_SIZE;
+
+  console.log(width, height);
+
+  // Получаем экстент тайлов topLeft и bottomRight
+  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
+  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
+
+  // Верхний левый угол экстента (в проекции карты)
+  topLeft = [extentMin[0], extentMin[3]];
+  // Нижний правый угол экстента (в проекции карты)
+  bottomRight = [extentMax[2], extentMax[1]];
+
+  //Ширина и высота экстента изображения
+  tileWidth = extentMax[2]-extentMin[0];
+  tileHeight = extentMin[3]-extentMax[1];
+  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+}
+
+// Вычисляем положение точек внутри изображения (из координат в пиксели)
+function findPixelsCoords(coordinatesAll,topLeftL, tileWidthL, tileHeightL, widthL, heightL){ // здесь tileWidth, tileHeight - размеры сторон тайлов
+  let pixelsAll =[];
+  for (const [x, y] of coordinatesAll){
+    const pixelX = Math.floor((x - topLeftL[0]) / tileWidthL * widthL);
+    const pixelY = Math.floor((topLeftL[1] - y) / tileHeightL * heightL);
+    pixelsAll.push([pixelX,pixelY])
+  } 
+  return pixelsAll;
+}
+
+// Вычисляем положение точек внутри изображения (из пикселей в координаты)
+function findCoordsPixels(pixelsAll,topLeftL, pixelLen){
+  let coordinatesAll =[];
+  pixelsAll.forEach((pixel)=>{
+      let x = pixel.x*pixelLen+topLeftL[0];
+      let y = topLeftL[1]-pixel.y*pixelLen;
+      coordinatesAll.push([x,y]);
+    });
+  return coordinatesAll;
+}
+
+async function makeImage(){
+  const TILE_SIZE = 256;
+  const sourceURL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
+  // // Создаем TileGrid для уровня масштабирования
+  // const tileGrid = createXYZ({ maxZoom: ZOOM });
+
+  //updateTileIndexes();
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
 
   canvas.width = width;
   canvas.height = height;
@@ -223,40 +372,26 @@ async function makeImage(pointsArr){
       }
   };
 
-  // Получаем экстент тайлов topLeft и downRight
-  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
-  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
-
-  // Верхний левый угол экстента (в проекции карты)
-  const topLeft = [extentMin[0], extentMin[3]];
-  // Нижний правый угол экстента (в проекции карты)
-  const downRight = [extentMax[2], extentMax[1]];
   const topLeftLonLat = toLonLat(topLeft);
-  const downRightLonLat = toLonLat(downRight);
-
-  //Ширина и высота экстента изображения
-  const tileWidth = extentMax[2]-extentMin[0];
-  const tileHeight = extentMin[3]-extentMax[1];
+  const bottomRightLonLat = toLonLat(bottomRight);
 
   const waterTags = [{ key: 'natural', value: 'water' }, {key: 'natural', value: 'wetland' }];
   const forestTags = [{ key: 'landuse', value: 'forest' }, { key: 'natural', value: 'wood' }];
-  const waterwayTags = [
-    { value:'waterway'}
-  ];
+  const waterwayTags = [{ value:'waterway'}];
 
   let waterMatrix=[];
   let forestMatrix=[];
   let waterwayMatrix=[];
   
   // let obstacleMatrix = Array.from({ length: width }, () => Array(height).fill(false));
-  // waterMatrix = await geoJsonToMatrix(topLeftLonLat, downRightLonLat, height, width, waterTags, obstacleMatrix)
+  // waterMatrix = await geoJsonToMatrix(topLeftLonLat, bottomRightLonLat, height, width, waterTags, obstacleMatrix)
   //console.log('Water Query:');
-  waterMatrix = await createMatrix(topLeftLonLat, downRightLonLat, height, width, waterTags);
+  waterMatrix = await createMatrix(topLeftLonLat, bottomRightLonLat, waterTags);
 
-  waterwayMatrix = await createMatrixForWay(topLeftLonLat, downRightLonLat, height, width, waterwayTags);
+  waterwayMatrix = await createMatrixForWay(topLeftLonLat, bottomRightLonLat, waterwayTags);
   //console.log('Waterway Query:');
 
-  forestMatrix = await createMatrix(topLeftLonLat, downRightLonLat, height, width, forestTags);
+  forestMatrix = await createMatrix(topLeftLonLat, bottomRightLonLat, forestTags);
   //console.log('Forest Query:');
 
   // объединяем инфу обо всех водных объектах в waterMatrix
@@ -267,7 +402,7 @@ async function makeImage(pointsArr){
   }
 
   // Вычисляем координаты наших точек на изображении
-  const pointsArrPixels = findPixelsCoords(pointsArr,topLeft,tileWidth,tileHeight, width, height);
+  const pointsArrPixels = findPixelsCoords(pointsOnMap,topLeft,tileWidth,tileHeight, width, height);
 
   let pathOnMap = [];
   const matrix = [];
@@ -293,7 +428,7 @@ async function makeImage(pointsArr){
         matrix.push(row);
       }
          
-      // Либо скачать изображение
+      // // Либо скачать изображение
       // const link = document.createElement('a');
       // link.href = dataURL;
       // link.download = 'map.png';
@@ -337,16 +472,16 @@ async function makeImage(pointsArr){
     let pathOnMapTotal=[];
     // переводим координаты пикселей в координаты на карте(EPSG:4326), изначально перевернув их(т.к. алгоритм формирует пути с конца)
     for (let i=0; i<grids.length; i++){
-      let pathOnMapPart = findCoordsPixels(pathTotal[i].reverse(),topLeft,grids[i]);
+      let pathOnMapPart = findCoordsPixels(pathTotal[i].reverse(),topLeft,grids[i].dictZoomPixelLen.get(ZOOM));
       pathOnMapTotal.push(pathOnMapPart);
     }
     // соединяем все пути и точки вместе
     for (let i=0; i<pathOnMapTotal.length; i++){
-      pathOnMap.push(pointsArr[i]);
+      pathOnMap.push(pointsOnMap[i]);
       pathOnMap.push(...pathOnMapTotal[i]);
     }
     // соединяем с посл. точкой
-    pathOnMap.push(pointsArr[pointsArr.length-1]);
+    pathOnMap.push(pointsOnMap[pointsOnMap.length-1]);
 
     //console.log(pathOnMap);
   }
@@ -361,7 +496,7 @@ async function makeImage(pointsArr){
   }
 
   // возвращаем путь в координатах проекции карты(EPSG:4326)
-  return [pathOnMap, topLeft, downRight];
+  return pathOnMap;
 }
 
 const elevation = new XYZ({
@@ -396,16 +531,37 @@ const map = new MapOL({
   }),
 });
 
+// Создаем слой для маркеров и добавляем его на карту
+const vectorLayerMarker = new VectorLayer({
+  source: vectorSourceMarker
+});
+map.addLayer(vectorLayerMarker);
+
+// Создаем слой для пути и добавляем его на карту
+const vectorLayerWay = new VectorLayer({
+  source: vectorSourceWay,
+  style: new Style({
+    stroke: new Stroke({
+        color: '#ff0000',
+        width: 3
+    })
+})
+});
+map.addLayer(vectorLayerWay);
+
+// Создаем слой для прямойгольник - окна поиска - и добавляем его на карту
+const vectorLayerRectangle = new VectorLayer({
+  source: vectorSourceRectangle
+});
+map.addLayer(vectorLayerRectangle);
+
 const controlIds = ['vert', 'sunEl', 'sunAz'];
 const controls = {};
 controlIds.forEach(function (id) {
   const control = document.getElementById(id);
-  const output = document.getElementById(id + 'Out');
   control.addEventListener('input', function () {
-    output.innerText = control.value;
     raster.changed();
   });
-  output.innerText = control.value;
   controls[id] = control;
 });
 
@@ -418,105 +574,131 @@ raster.on('beforeoperations', function (event) {
   }
 });
 
+// связываем слайдеры и значения коэффициентов в коде
+var zoomSlider = document.getElementById("zoomSlider");
+// Update the current slider value (each time you drag the slider handle)
+zoomSlider.oninput = function() {
+  ZOOM = parseInt(this.value);
+  updateTileIndexes();
+  if (pointsOnMap.length >= 2 && recVisibleFlag){
+  createRectangle();
+}
+}
+
+var mountainSlider = document.getElementById("mountainSlider");
+mountainSlider.oninput = function() {
+  kMountain = parseInt(this.value);
+}
+
+var forestSlider = document.getElementById("forestSlider");
+forestSlider.oninput = function() {
+  kForest = parseInt(this.value);
+}
+
+function createRectangle(){
+  // Создание геометрии прямоугольника
+  const rectangleCoords = [
+    [topLeft[0], topLeft[1]],
+    [bottomRight[0], topLeft[1]],
+    [bottomRight[0], bottomRight[1]],
+    [topLeft[0], bottomRight[1]],
+    [topLeft[0], topLeft[1]] // Замыкаем прямоугольник
+  ];
+
+  // Создание объекта Feature с геометрией типа Polygon
+  const rectangleFeature = new Feature({
+    geometry: new Polygon([rectangleCoords])
+  });
+
+  // Изменение векторного источника и слоя
+  vectorSourceRectangle.clear();
+  vectorSourceRectangle.addFeature(rectangleFeature);
+
+  //map.render();
+  // map.updateSize();
+}
 
 map.on('click', async function(event) {
   const coordinates = event.coordinate; // Получить координаты клика
 
   // Сохранить координаты в массиве
   pointsOnMap.push(coordinates);
+  updateTileIndexes();
+  if (recVisibleFlag == true){
+    createRectangle();
+  }
 
   // Создать метку на карте
   const marker = new Feature({
     geometry: new Point(coordinates)
   });
+  // Применить стиль к маркеру
+  marker.setStyle(markerStyle);
 
-  const vectorSource = new Vector({
-    features: [marker]
-  });
-
-  const vectorLayer = new VectorLayer({
-    source: vectorSource
-  });
-
-  map.addLayer(vectorLayer);
+  vectorSourceMarker.addFeature(marker);
 
   console.log(pointsOnMap);
 });
+
+// Функция для очистки слоя маркеров
+function clearMarkers() {
+  vectorSourceMarker.clear();
+  pointsOnMap = [];
+  console.log("Координаты удалены");
+}
+
+// Функция для очистки слоя пути 
+function clearWay() {
+  vectorSourceWay.clear();
+  way = [];
+  console.log("Путь удален");
+}
+
+// Функция для очистки слоя прямоугольника
+function clearRec() {
+  vectorSourceRectangle.clear();
+  recVisibleFlag = false;
+}
 
 document.getElementById('find-way').addEventListener('click', async function() {
   
   // // Очищаем ссылку и объект URL после завершения скачивания
   // window.URL.revokeObjectURL(url);
   // document.body.removeChild(a);
-  //try{
-    startTime = performance.now();
-    let [wayL,topLeft, downRight] = await makeImage(pointsOnMap);
-    endTime = performance.now();
-    console.log("Кол-во точек маршрута:", wayL.length);
-    // Вычисление и вывод времени выполнения
-    const timeTaken = endTime - startTime;
-    console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
-    
-    let pathFeature = new Feature({
-      geometry: new LineString(wayL),
-      name: 'Route'
-    });
-  
-    // Создаем слой векторных объектов и добавляем линию
-    const vectorSource = new Vector({
-        features: [pathFeature]
-    });
-  
-    const vectorLayer = new VectorLayer({
-        source: vectorSource,
-        style: new Style({
-            stroke: new Stroke({
-                color: '#ff0000',
-                width: 3
-            })
-        })
-    });
-    // Добавляем векторный слой на карту
-    map.addLayer(vectorLayer);
-    way=wayL; // почему-то иначе не работает порядок срабатывания действий : await makeImage - не дожидается выполнения
+  // try{
+    // стираем путь, если он уж был
+    clearWay();
+    // проверка на слишком большую отдаленность точек
+    if ((xMax-xMin)*(yMax-yMin) >= 2048*2048){
+      alert('Слишком большое окно поиска, попробуйте увеличить уровень zoom');
+    } 
+    else{
+      startTime = performance.now();
+      let way = await makeImage();
+      endTime = performance.now();
+      console.log("Кол-во точек маршрута:", way.length);
+      // Вычисление и вывод времени выполнения
+      const timeTaken = endTime - startTime;
+      console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
+      
+      // вывод маршрута
+      let pathFeature = new Feature({
+        geometry: new LineString(way),
+        name: 'Route'
+      });
 
-    // добавляем прямоугольник на карту
-    // Создание геометрии прямоугольника
-    const rectangleCoords = [
-      [topLeft[0], topLeft[1]],
-      [downRight[0], topLeft[1]],
-      [downRight[0], downRight[1]],
-      [topLeft[0], downRight[1]],
-      [topLeft[0], topLeft[1]] // Замыкаем прямоугольник
-    ];
+      // добавляем линию в слой векторных объектов
+      vectorSourceWay.addFeature(pathFeature);
 
-    // Создание объекта Feature с геометрией типа Polygon
-    const rectangleFeature = new Feature({
-      geometry: new Polygon([rectangleCoords])
-    });
-
-    // Создание векторного источника и слоя
-    const vectorSourceRec = new Vector({
-      features: [rectangleFeature]
-    });
-    const vectorLayerRec = new VectorLayer({
-      source: vectorSourceRec
-    });
-
-  // Добавление векторного слоя на карту
-  map.addLayer(vectorLayerRec);
-
+      // добавляем прямоугольгник
+      createRectangle();
+      vectorLayerRectangle.setVisible(true);
+      recVisibleFlag = true;
+    }
     // } 
     // catch {
-    //   alert('Произошла ошибка:');
+    //   alert('Произошла ошибка при попытке запустить алгоритм');
     // }
-  
-    // map.setView(new View({
-    //   center: way[0],
-    //   zoom: 15,
-    // }),)
-
-  
 });
 
 document.getElementById('export-way').addEventListener('click', async function() {
@@ -575,17 +757,62 @@ document.getElementById('export-way').addEventListener('click', async function()
   }
 });
 
-function pointInPolygon(point, vs) {
-  var x = point[0], y = point[1];
-  var inside = false;
-  for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-      var xi = vs[i][0], yi = vs[i][1];
-      var xj = vs[j][0], yj = vs[j][1];
-      var intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
+document.getElementById('clear-all').addEventListener('click', async function() {
+  try{
+    // очистка точек-маркеров
+    clearMarkers();
+    // очистка маршрута
+    clearWay();
+    // очистка прямоугольника
+    clearRec();
   }
-  return inside;
-}
+  catch(error){
+    alert('Не удалось выполнить операцию очистки', error);
+  }
+});
+
+document.getElementById('btn-rec-visible').addEventListener('click', async function() {
+  try{
+    if (way.length == 0){
+      // updateTileIndexes();
+      createRectangle();
+    }
+    // меняем видимость прям.-ка и флаг видимости
+    if (recVisibleFlag){
+      vectorLayerRectangle.setVisible(false);
+      recVisibleFlag = false;
+    }
+    else{
+      vectorLayerRectangle.setVisible(true);
+      recVisibleFlag = true;
+    }
+  }
+  catch(error){
+    alert('Не удалось выполнить операцию изменения видимости окна поиска', error);
+  }
+});
+
+document.getElementById('window-plus').addEventListener('click', async function() {
+  try{
+    updateTileIndexes_plus();
+    createRectangle();
+  }
+  catch(error){
+    alert('Не удалось выполнить операцию увеличения окна поиска', error);
+  }
+});
+
+document.getElementById('window-minus').addEventListener('click', async function() {
+  try{
+    updateTileIndexes_minus();
+    createRectangle();
+  }
+  catch(error){
+    alert('Не удалось выполнить операцию уменьшения окна поиска', error);
+  }
+});
+
+
 
 async function getLanduseData(bbox, tags) {
   const query = `
@@ -613,37 +840,28 @@ async function getLanduseData(bbox, tags) {
   return await response.json();
 }
 
-
-function bboxPolygon_(bbox) {
-  // bbox is an array in the format [minX, minY, maxX, maxY]
-  const [minX, minY, maxX, maxY] = bbox;
-
-  // Create a polygon representing the bounding box
-  const coordinates = [
-      [minX, minY], // bottom-left
-      [minX, maxY], // top-left
-      [maxX, maxY], // top-right
-      [maxX, minY], // bottom-right
-      [minX, minY]  // closing the polygon by returning to the bottom-left
+function bboxPolygon_(topLeft, bottomRight) {
+  const rectangleCoords = [
+    [topLeft[0], topLeft[1]],
+    [bottomRight[0], topLeft[1]],
+    [bottomRight[0], bottomRight[1]],
+    [topLeft[0], bottomRight[1]],
+    [topLeft[0], topLeft[1]] // Замыкаем прямоугольник
   ];
 
   // Return a GeoJSON Polygon
   return {
       type: 'Polygon',
-      coordinates: [coordinates]
+      coordinates: [rectangleCoords]
   };
 }
 
-function clipPolygon(polygon, bboxPolygon) {
-  return intersect(polygon, bboxPolygon);
-}
-
 // Function to draw a polygon on the canvas
-function drawPolygon(coords, context, bbox, tileWidth, tileHeight) {
+function drawPolygon(coords, context, bbox, tileWidth_, tileHeight_) {
   context.beginPath();
   coords[0].forEach((coord, index) => {
-    const x = (coord[0] - bbox[0]) / tileWidth;
-    const y = (bbox[3] - coord[1]) / tileHeight;
+    const x = (coord[0] - bbox[0]) / tileWidth_;
+    const y = (bbox[3] - coord[1]) / tileHeight_;
     if (index === 0) {
       context.moveTo(x, y);
     } else {
@@ -654,13 +872,12 @@ function drawPolygon(coords, context, bbox, tileWidth, tileHeight) {
   context.fill();
 }
 
-async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
-  const tileWidth = (bottomRight[0] - topLeft[0]) / cols;
-  const tileHeight = (topLeft[1] - bottomRight[1]) / rows;
-  const bbox = `${bottomRight[1]},${topLeft[0]},${topLeft[1]},${bottomRight[0]}`;
-  const bboxA = [topLeft[0], bottomRight[1], bottomRight[0], topLeft[1]];
-  const bboxPolygon = bboxPolygon_(bboxA);
-  // Функция для обрезки полигона по границам bbox
+async function createMatrix(topLeftLonLat, bottomRightLonLat, landuseTags) {
+  const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]) / width;
+  const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]) / height;
+  const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
+  const bboxA = [topLeftLonLat[0], bottomRightLonLat[1], bottomRightLonLat[0], topLeftLonLat[1]];
+  const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
 
   const osmData = await getLanduseData(bbox, landuseTags);
 
@@ -688,8 +905,6 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
   };
 
   // Создание изображения и отображение точек
-  const width = cols;
-  const height = rows;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -704,9 +919,9 @@ async function createMatrix(topLeft, bottomRight, rows, cols, landuseTags) {
   intersectedGeoJSON.features.forEach(feature => {
     const coords = feature.geometry.coordinates;
     if (feature.geometry.type === 'Polygon') {
-      drawPolygon(coords, context, bboxA, tileWidth, tileHeight);
+      drawPolygon(coords, context, bboxA, tileWidth_, tileHeight_);
     } else if (feature.geometry.type === 'MultiPolygon') {
-      coords.forEach(polygon => drawPolygon(polygon, context, bboxA, tileWidth, tileHeight));
+      coords.forEach(polygon => drawPolygon(polygon, context, bboxA, tileWidth_, tileHeight_));
     }
   });
 
@@ -780,12 +995,12 @@ function drawLine(context, pixels) {
   context.stroke();
 }
 
-async function createMatrixForWay(topLeft, bottomRight, rows, cols, landuseTags) {
-  const tileWidth = (bottomRight[0] - topLeft[0]);
-  const tileHeight = (topLeft[1] - bottomRight[1]);
-  const bbox = `${bottomRight[1]},${topLeft[0]},${topLeft[1]},${bottomRight[0]}`;
-  const bboxA = [topLeft[0], bottomRight[1], bottomRight[0], topLeft[1]];
-  const bboxPolygon = bboxPolygon_(bboxA);
+async function createMatrixForWay(topLeftLonLat, bottomRightLonLat, landuseTags) {
+  const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]);
+  const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]);
+  const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
+  //const bboxA = [topLeftLonLat[0], bottomRightLonLat[1], bottomRightLonLat[0], topLeftLonLat[1]];
+  const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
   // Функция для обрезки полигона по границам bbox
 
   const osmData = await getWaysData(bbox, landuseTags);
@@ -798,11 +1013,9 @@ async function createMatrixForWay(topLeft, bottomRight, rows, cols, landuseTags)
       }
   });
 
-  const waterways = osmData.elements.filter(el => el.type === 'way');
+  const ways = osmData.elements.filter(el => el.type === 'way');
 
   // Создание изображения и отображение точек
-  const width = cols;
-  const height = rows;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -812,26 +1025,27 @@ async function createMatrixForWay(topLeft, bottomRight, rows, cols, landuseTags)
   context.fillStyle = 'black';
   context.fillRect(0, 0, width, height);
 
-  waterways.forEach(way => {
+  ways.forEach(way => {
     const nodes = way.nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
     const wayLine = lineString(nodes);
-        // Обрезка линии по bbox
-        const clipped = lineSplit(wayLine, bboxPolygon);
-        clipped.features.forEach(segment => {
-            const coords = segment.geometry.coordinates;
-            const pixels = findPixelsCoords(coords, topLeft, tileWidth, tileHeight, width, height);
-            drawLine(context, pixels);
-        });
+    
+    // Обрезка линии по bbox
+    const clipped = lineSplit(wayLine, bboxPolygon);
+    clipped.features.forEach(segment => {
+        const coords = segment.geometry.coordinates;
+        const pixels = findPixelsCoords(coords, topLeftLonLat, tileWidth_, tileHeight_, width, height);
+        drawLine(context, pixels);
+    });
   });
 
-  // // Получаем данные изображения в формате PNG
-  // const dataURL = canvas.toDataURL('image/png');
+  // Получаем данные изображения в формате PNG
+  const dataURL = canvas.toDataURL('image/png');
 
-  // // Скачиваем изображение
-  // const link = document.createElement('a');
-  // link.href = dataURL;
-  // link.download = 'waterway.png';
-  // link.click();
+  // Скачиваем изображение
+  const link = document.createElement('a');
+  link.href = dataURL;
+  link.download = 'waterway.png';
+  link.click();
 
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
