@@ -30,8 +30,8 @@ let pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
 let way  = []; // путь на карте (массив точек в формате географических координат)
 
-let kMountain=1; //1, 2, 4
-let kForest = 2; //1, 2, 4
+let kMountain=1; //1, 2, 3, 4
+let kForest = 1; //1, 9, 17, 25
 
 let startTime = 0;
 let endTime = 0;
@@ -183,10 +183,36 @@ function shade(inputs, data) {
   return {data: shadeData, width: width, height: height};
 }
 
+function updateTileSizes(){
+  const TILE_SIZE = 256;
+
+  // Создаем TileGrid для уровня масштабирования
+  const tileGrid = createXYZ({ maxZoom: ZOOM });
+
+   // Размер итогового изображения
+   width = (xMax - xMin + 1) * TILE_SIZE;
+   height = (yMax - yMin + 1) * TILE_SIZE;
+ 
+   console.log(width, height);
+ 
+   // Получаем экстент тайлов topLeft и bottomRight
+   const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
+   const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
+ 
+   // Верхний левый угол экстента (в проекции карты)
+   topLeft = [extentMin[0], extentMin[3]];
+   // Нижний правый угол экстента (в проекции карты)
+   bottomRight = [extentMax[2], extentMax[1]];
+ 
+   //Ширина и высота экстента изображения
+   tileWidth = extentMax[2]-extentMin[0];
+   tileHeight = extentMin[3]-extentMax[1];
+   console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+}
+
 // рассчитываем новые topLeft, bottomRight, tileWidth, tileHeight, width, height
 // учитывая все точки-маркеры и уровень zoom
 function updateTileIndexes(){
-  const TILE_SIZE = 256;
 
   // Создаем TileGrid для уровня масштабирования
   const tileGrid = createXYZ({ maxZoom: ZOOM });
@@ -211,32 +237,10 @@ function updateTileIndexes(){
   xMaxConst = xMax;
   yMaxConst = yMax;
 
-  // Размер итогового изображения
-  width = (xMax - xMin + 1) * TILE_SIZE;
-  height = (yMax - yMin + 1) * TILE_SIZE;
-
-  console.log(width, height);
-
-  // Получаем экстент тайлов topLeft и bottomRight
-  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
-  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
-
-  // Верхний левый угол экстента (в проекции карты)
-  topLeft = [extentMin[0], extentMin[3]];
-  // Нижний правый угол экстента (в проекции карты)
-  bottomRight = [extentMax[2], extentMax[1]];
-
-  //Ширина и высота экстента изображения
-  tileWidth = extentMax[2]-extentMin[0];
-  tileHeight = extentMin[3]-extentMax[1];
-  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+  updateTileSizes();
 }
 
 function updateTileIndexes_plus(){
-  const TILE_SIZE = 256;
-
-  // Создаем TileGrid для уровня масштабирования
-  const tileGrid = createXYZ({ maxZoom: ZOOM });
 
   const MaxForZoom = Math.pow(2,ZOOM); // максимально возможный +1 индекс тайла для zoom
 
@@ -252,33 +256,10 @@ function updateTileIndexes_plus(){
     yMax+=1;
   }
   
-  // Размер итогового изображения
-  width = (xMax - xMin + 1) * TILE_SIZE;
-  height = (yMax - yMin + 1) * TILE_SIZE;
-
-  console.log(width, height);
-
-  // Получаем экстент тайлов topLeft и bottomRight
-  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
-  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
-
-  // Верхний левый угол экстента (в проекции карты)
-  topLeft = [extentMin[0], extentMin[3]];
-  // Нижний правый угол экстента (в проекции карты)
-  bottomRight = [extentMax[2], extentMax[1]];
-
-  //Ширина и высота экстента изображения
-  tileWidth = extentMax[2]-extentMin[0];
-  tileHeight = extentMin[3]-extentMax[1];
-  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+  updateTileSizes();
 }
 
 function updateTileIndexes_minus(){
-  const TILE_SIZE = 256;
-
-  // Создаем TileGrid для уровня масштабирования
-  const tileGrid = createXYZ({ maxZoom: ZOOM });
-
   // обновляем размеры, если это возможно
   if (xMin<xMinConst)
     xMin +=1;
@@ -291,25 +272,7 @@ function updateTileIndexes_minus(){
     yMax -=1;
   }
   
-  // Размер итогового изображения
-  width = (xMax - xMin + 1) * TILE_SIZE;
-  height = (yMax - yMin + 1) * TILE_SIZE;
-
-  console.log(width, height);
-
-  // Получаем экстент тайлов topLeft и bottomRight
-  const extentMin = tileGrid.getTileCoordExtent([ZOOM, xMin, yMin]);
-  const extentMax = tileGrid.getTileCoordExtent([ZOOM, xMax, yMax]);
-
-  // Верхний левый угол экстента (в проекции карты)
-  topLeft = [extentMin[0], extentMin[3]];
-  // Нижний правый угол экстента (в проекции карты)
-  bottomRight = [extentMax[2], extentMax[1]];
-
-  //Ширина и высота экстента изображения
-  tileWidth = extentMax[2]-extentMin[0];
-  tileHeight = extentMin[3]-extentMax[1];
-  console.log([toLonLat(topLeft),toLonLat(bottomRight)]);
+  updateTileSizes();
 }
 
 // Вычисляем положение точек внутри изображения (из координат в пиксели)
@@ -337,11 +300,6 @@ function findCoordsPixels(pixelsAll,topLeftL, pixelLen){
 async function makeImage(){
   const TILE_SIZE = 256;
   const sourceURL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
-
-  // // Создаем TileGrid для уровня масштабирования
-  // const tileGrid = createXYZ({ maxZoom: ZOOM });
-
-  //updateTileIndexes();
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -378,28 +336,90 @@ async function makeImage(){
   const waterTags = [{ key: 'natural', value: 'water' }, {key: 'natural', value: 'wetland' }];
   const forestTags = [{ key: 'landuse', value: 'forest' }, { key: 'natural', value: 'wood' }];
   const waterwayTags = [{ value:'waterway'}];
-
-  let waterMatrix=[];
+  const bridgeTags = [{value:'bridge'}];
+  const buildingTags = [{value:'building'}];
+  const barrierTags = [{value:'barrier'}];
+  
+  let obstacleMatrix=[];
   let forestMatrix=[];
   let waterwayMatrix=[];
+  let bridgeMatrix = [];
+  let buildingMatrix = [];
+  let barrierMatrix = [];
+
   
   // let obstacleMatrix = Array.from({ length: width }, () => Array(height).fill(false));
   // waterMatrix = await geoJsonToMatrix(topLeftLonLat, bottomRightLonLat, height, width, waterTags, obstacleMatrix)
   //console.log('Water Query:');
-  waterMatrix = await createMatrix(topLeftLonLat, bottomRightLonLat, waterTags);
 
-  waterwayMatrix = await createMatrixForWay(topLeftLonLat, bottomRightLonLat, waterwayTags);
-  //console.log('Waterway Query:');
+  const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
 
-  forestMatrix = await createMatrix(topLeftLonLat, bottomRightLonLat, forestTags);
-  //console.log('Forest Query:');
+  // данные о воде(водные объекты и болота)
+  const waterData = await getLanduseData(bbox, waterTags);
+  obstacleMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, waterData);
 
-  // объединяем инфу обо всех водных объектах в waterMatrix
-  for (let i=0; i<height; i++){
-    for (let j=0; j<width; j++){
-      waterMatrix[i][j] = waterMatrix[i][j] || (waterwayMatrix[i][j]);
+  // данные о речных путях
+  const waterwayData = await getWaysData(bbox, waterwayTags);
+  if (waterwayData.elements.length >=1 ){
+    waterwayMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, waterwayData);
+    // объединяем инфу обо всех водных объектах в obstacleMatrix
+    for (let i=0; i<height; i++){
+      for (let j=0; j<width; j++){
+        obstacleMatrix[i][j] = obstacleMatrix[i][j] || waterwayMatrix[i][j];
+      }
     }
   }
+
+// данные о зданиях
+const buildingData = await getWaysData(bbox, buildingTags);
+if (buildingData.elements.length >=1 ){
+  buildingMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, buildingData);
+  // объединяем инфу обо всех водных объектах в obstacleMatrix
+  for (let i=0; i<height; i++){
+    for (let j=0; j<width; j++){
+      obstacleMatrix[i][j] = obstacleMatrix[i][j] || buildingMatrix[i][j];
+    }
+  }
+}
+
+// данные о заборах
+const barrierData = await getWaysData(bbox, barrierTags);
+if (barrierData.elements.length >=1 ){
+  barrierMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, barrierData);
+  // объединяем инфу о водных объектах и мостах в obstacleMatrix
+  for (let i=0; i<height; i++){
+    for (let j=0; j<width; j++){
+      obstacleMatrix[i][j] = obstacleMatrix[i][j] || barrierMatrix[i][j];
+    }
+  }
+  // barrierMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, barrierData);
+  // // объединяем инфу о водных объектах и мостах в obstacleMatrix
+  // for (let i=0; i<height; i++){
+  //   for (let j=0; j<width; j++){
+  //     obstacleMatrix[i][j] = obstacleMatrix[i][j] || barrierMatrix[i][j];
+  //   }
+  // }
+}
+
+// данные о мостах
+const bridgeData = await getWaysData(bbox, bridgeTags);
+if (bridgeData.elements.length >=1 ){
+  bridgeMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, bridgeData);
+  // объединяем инфу о водных объектах и мостах в obstacleMatrix
+  for (let i=0; i<height; i++){
+    for (let j=0; j<width; j++){
+      obstacleMatrix[i][j] = obstacleMatrix[i][j] ^ bridgeMatrix[i][j];
+    }
+  }
+}
+
+  // данные о лесах
+  const forestData = await getLanduseData(bbox, forestTags);
+  forestMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, forestData);
+  //console.log('Forest Query:');
+
+  
+  //waterMatrix = await createMatrixOfWater(topLeftLonLat, bottomRightLonLat);
 
   // Вычисляем координаты наших точек на изображении
   const pointsArrPixels = findPixelsCoords(pointsOnMap,topLeft,tileWidth,tileHeight, width, height);
@@ -444,7 +464,7 @@ async function makeImage(){
   for (let i=0; i<pointsArrPixels.length-1; i++){
     // создаем массив(сетку), каждая ячейка которого Cell содержит инф. о x,y,heigth пикселя, а также gScore, fScore, isAbstacle и др.
     // также для каждой сетки известны свои координаты начала и конца пути(для каждой пары точек)
-    let grid=new Grid(width, height, pointsArrPixels[i], pointsArrPixels[i+1], matrix, waterMatrix, forestMatrix );
+    let grid=new Grid(width, height, pointsArrPixels[i], pointsArrPixels[i+1], matrix, obstacleMatrix, forestMatrix );
     grids.push(grid);
   }
   // для каждой пары точек находим мин. путь
@@ -812,8 +832,6 @@ document.getElementById('window-minus').addEventListener('click', async function
   }
 });
 
-
-
 async function getLanduseData(bbox, tags) {
   const query = `
       [out:json];
@@ -872,14 +890,14 @@ function drawPolygon(coords, context, bbox, tileWidth_, tileHeight_) {
   context.fill();
 }
 
-async function createMatrix(topLeftLonLat, bottomRightLonLat, landuseTags) {
+function createMatrix(topLeftLonLat, bottomRightLonLat, osmData) {
   const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]) / width;
   const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]) / height;
-  const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
+  //const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
   const bboxA = [topLeftLonLat[0], bottomRightLonLat[1], bottomRightLonLat[0], topLeftLonLat[1]];
   const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
 
-  const osmData = await getLanduseData(bbox, landuseTags);
+  //const osmData = await getLanduseData(bbox, landuseTags);
 
   // Создание карты узлов для быстрого доступа
   const nodesMap = new Map();
@@ -995,15 +1013,13 @@ function drawLine(context, pixels) {
   context.stroke();
 }
 
-async function createMatrixForWay(topLeftLonLat, bottomRightLonLat, landuseTags) {
+function createMatrixForWay(topLeftLonLat, bottomRightLonLat, osmData) {
   const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]);
   const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]);
-  const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
-  //const bboxA = [topLeftLonLat[0], bottomRightLonLat[1], bottomRightLonLat[0], topLeftLonLat[1]];
+  //const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
   const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
-  // Функция для обрезки полигона по границам bbox
 
-  const osmData = await getWaysData(bbox, landuseTags);
+  //const osmData = await getWaysData(bbox, landuseTags);
 
   // Создание карты узлов для быстрого доступа
   const nodesMap = new Map();

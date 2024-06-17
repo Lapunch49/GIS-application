@@ -31,7 +31,7 @@ function tentativeG(current, neighbor, dictZoomPixelLen, zoom, kMountain, kFores
     // delta_gScore - стоимость перехода из current в neighbor
     let delta = current.h - neighbor[0].h; // катет прям. треугольника
     
-    delta = Math.abs(delta)*kMountain*4;
+    delta = Math.abs(delta)*kMountain;
     
     let delta_gScore;
     if (neighbor[1] == 1){ // forward heighbor
