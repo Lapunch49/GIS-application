@@ -68,7 +68,7 @@ class Grid {
     end = [];
     _arr=[];
 
-    constructor(columns, rows, start, end, matrix, waterMatrix, forestMatrix) {
+    constructor(columns, rows, start, end, matrix, obstacleMatrix, forestMatrix) {
         this.columns = columns;
         this.rows = rows;
 
@@ -81,15 +81,15 @@ class Grid {
         this.dictZoomPixelLen.set(12, 38.2185);
         this.dictZoomPixelLen.set(11, 76.4370);
         this.dictZoomPixelLen.set(10, 152.8741);
-        this.dictZoomPixelLen.set(9, 305.7481);
-        this.dictZoomPixelLen.set(8, 611.4962);
-        this.dictZoomPixelLen.set(7, 1222.9925);
-        this.dictZoomPixelLen.set(6, 2445.9849);
-        this.dictZoomPixelLen.set(5, 4891.9698);
-        this.dictZoomPixelLen.set(4, 9783.9396);
-        this.dictZoomPixelLen.set(3, 19567.8792);
-        this.dictZoomPixelLen.set(2, 39135.7585);
-        this.dictZoomPixelLen.set(1, 78271.5169);
+        // this.dictZoomPixelLen.set(9, 305.7481);
+        // this.dictZoomPixelLen.set(8, 611.4962);
+        // this.dictZoomPixelLen.set(7, 1222.9925);
+        // this.dictZoomPixelLen.set(6, 2445.9849);
+        // this.dictZoomPixelLen.set(5, 4891.9698);
+        // this.dictZoomPixelLen.set(4, 9783.9396);
+        // this.dictZoomPixelLen.set(3, 19567.8792);
+        // this.dictZoomPixelLen.set(2, 39135.7585);
+        // this.dictZoomPixelLen.set(1, 78271.5169);
 
         // cells kept for analysing
         this.openSet = [];
@@ -101,7 +101,7 @@ class Grid {
         for (let i = 0; i < columns; i++) {
             let temp = [];
             for (let j = 0; j < rows; j++) {
-                let cell = new Cell(i, j, matrix[j][i], ++c, waterMatrix[j][i], forestMatrix[j][i]);
+                let cell = new Cell(i, j, matrix[j][i], ++c, obstacleMatrix[j][i], forestMatrix[j][i]);
                 if ((i == start[0]) && (j == start[1])) cell.is_start = true;
                 if ((i == end[0]) && (j == end[1])) cell.is_end = true;
 
@@ -157,14 +157,13 @@ class Grid {
 };
 
 
-function Cell(x, y, h, id, isWater, isForest) {
+function Cell(x, y, h, id, isObstacle, isForest) {
     this.x = x;
     this.y = y;
     this.h = h;
     this.id = id;
-    this.isWater = isWater;
     this.isForest = isForest;
-    this.isObstacle = isWater;
+    this.isObstacle = isObstacle;
 
     // in the simplest words this is the distance from the starting cell to the current cell
     this.gScore = Infinity;

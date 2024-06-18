@@ -8,13 +8,11 @@ import Polygon from 'ol/geom/Polygon.js';
 import LineString from 'ol/geom/LineString';
 import { Stroke, Style, Icon } from 'ol/style';
 import VectorLayer from 'ol/layer/Vector.js';
-//import { get as getProjection,fromLonLat,toLonLat  } from 'ol/proj';
 import { createXYZ } from 'ol/tilegrid';
 import {Grid, a_star} from './algorithm.js';
 import { toLonLat } from 'ol/proj.js';
 import GeoJSON from 'ol/format/GeoJSON.js';
-//import { polygon, point, booleanPointInPolygon, intersect } from '@turf/turf';
-import { lineString, lineSplit, intersect, bbox} from '@turf/turf';
+import { lineString, lineSplit, intersect} from '@turf/turf';
 import osmtogeojson from 'osmtogeojson';
 
 // изображение для иконки маркера
@@ -347,16 +345,12 @@ async function makeImage(){
   let buildingMatrix = [];
   let barrierMatrix = [];
 
-  
-  // let obstacleMatrix = Array.from({ length: width }, () => Array(height).fill(false));
-  // waterMatrix = await geoJsonToMatrix(topLeftLonLat, bottomRightLonLat, height, width, waterTags, obstacleMatrix)
-  //console.log('Water Query:');
-
   const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
 
   // данные о воде(водные объекты и болота)
-  const waterData = await getLanduseData(bbox, waterTags);
-  obstacleMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, waterData);
+  // try{
+    const waterData = await getLanduseData(bbox, waterTags);
+    obstacleMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, waterData);
 
   // данные о речных путях
   const waterwayData = await getWaysData(bbox, waterwayTags);
@@ -370,48 +364,44 @@ async function makeImage(){
     }
   }
 
-// данные о зданиях
-const buildingData = await getWaysData(bbox, buildingTags);
-if (buildingData.elements.length >=1 ){
-  buildingMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, buildingData);
-  // объединяем инфу обо всех водных объектах в obstacleMatrix
-  for (let i=0; i<height; i++){
-    for (let j=0; j<width; j++){
-      obstacleMatrix[i][j] = obstacleMatrix[i][j] || buildingMatrix[i][j];
+  // данные о зданиях
+  const buildingData = await getWaysData(bbox, buildingTags);
+  if (buildingData.elements.length >=1 ){
+    buildingMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, buildingData);
+    // объединяем инфу обо всех водных объектах в obstacleMatrix
+    for (let i=0; i<height; i++){
+      for (let j=0; j<width; j++){
+        obstacleMatrix[i][j] = obstacleMatrix[i][j] || buildingMatrix[i][j];
+      }
     }
   }
-}
 
-// данные о заборах
-const barrierData = await getWaysData(bbox, barrierTags);
-if (barrierData.elements.length >=1 ){
-  barrierMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, barrierData);
-  // объединяем инфу о водных объектах и мостах в obstacleMatrix
-  for (let i=0; i<height; i++){
-    for (let j=0; j<width; j++){
-      obstacleMatrix[i][j] = obstacleMatrix[i][j] || barrierMatrix[i][j];
+  // данные о заборах
+  const barrierData = await getWaysData(bbox, barrierTags);
+  if (barrierData.elements.length >=1 ){
+    barrierMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, barrierData);
+    // объединяем инфу о водных объектах и мостах в obstacleMatrix
+    for (let i=0; i<height; i++){
+      for (let j=0; j<width; j++){
+        obstacleMatrix[i][j] = obstacleMatrix[i][j] || barrierMatrix[i][j];
+      }
     }
   }
-  // barrierMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, barrierData);
-  // // объединяем инфу о водных объектах и мостах в obstacleMatrix
-  // for (let i=0; i<height; i++){
-  //   for (let j=0; j<width; j++){
-  //     obstacleMatrix[i][j] = obstacleMatrix[i][j] || barrierMatrix[i][j];
-  //   }
-  // }
-}
 
-// данные о мостах
-const bridgeData = await getWaysData(bbox, bridgeTags);
-if (bridgeData.elements.length >=1 ){
-  bridgeMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, bridgeData);
-  // объединяем инфу о водных объектах и мостах в obstacleMatrix
-  for (let i=0; i<height; i++){
-    for (let j=0; j<width; j++){
-      obstacleMatrix[i][j] = obstacleMatrix[i][j] ^ bridgeMatrix[i][j];
+  // данные о мостах
+  const bridgeData = await getWaysData(bbox, bridgeTags);
+  if (bridgeData.elements.length >=1 ){
+    bridgeMatrix = createMatrixForWay(topLeftLonLat, bottomRightLonLat, bridgeData);
+    // объединяем инфу о водных объектах и мостах в obstacleMatrix
+    for (let i=0; i<height; i++){
+      for (let j=0; j<width; j++){
+        // if (bridgeMatrix[i][j] == true){
+        //   obstacleMatrix[i][j] = false;
+        // }
+        obstacleMatrix[i][j] = obstacleMatrix[i][j] ^ bridgeMatrix[i][j];
+      }
     }
   }
-}
 
   // данные о лесах
   const forestData = await getLanduseData(bbox, forestTags);
@@ -485,7 +475,7 @@ if (bridgeData.elements.length >=1 ){
 
   // Вычисление и вывод времени выполнения
   const timeTaken2 = endTime2 - startTime2;
-  console.log(`Время выполнения: ${timeTaken2.toFixed(2)} миллисекунд`);
+  console.log(`Время работы алгоритма: ${timeTaken2.toFixed(2)} миллисекунд`);
 
   // если все пути были найдены
   if (!flag){
@@ -517,6 +507,9 @@ if (bridgeData.elements.length >=1 ){
 
   // возвращаем путь в координатах проекции карты(EPSG:4326)
   return pathOnMap;
+// } catch{
+//   alert("У вас проблемы с интернет-соединением!");
+// }
 }
 
 const elevation = new XYZ({
@@ -527,11 +520,13 @@ const elevation = new XYZ({
     '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank">Data sources and attribution</a>',
 });
 
+
 const raster = new Raster({
   sources: [elevation],
   operationType: 'image',
   operation: shade,
 });
+
 
 const map = new MapOL({
   target: 'map',
@@ -689,12 +684,12 @@ document.getElementById('find-way').addEventListener('click', async function() {
     // стираем путь, если он уж был
     clearWay();
     // проверка на слишком большую отдаленность точек
-    if ((xMax-xMin)*(yMax-yMin) >= 2048*2048){
-      alert('Слишком большое окно поиска, попробуйте увеличить уровень zoom');
+    if (height*width >= 2048*1792){
+      alert('Слишком большое окно поиска, попробуйте уменьшить уровень zoom');
     } 
     else{
       startTime = performance.now();
-      let way = await makeImage();
+      way = await makeImage();
       endTime = performance.now();
       console.log("Кол-во точек маршрута:", way.length);
       // Вычисление и вывод времени выполнения
@@ -715,7 +710,7 @@ document.getElementById('find-way').addEventListener('click', async function() {
       vectorLayerRectangle.setVisible(true);
       recVisibleFlag = true;
     }
-    // } 
+    //} 
     // catch {
     //   alert('Произошла ошибка при попытке запустить алгоритм');
     // }
@@ -1001,8 +996,16 @@ async function getWaysData(bbox, tags) {
   return await response.json();
 }
 
-
 function drawLine(context, pixels) {
+  // ставим проверку на возмсожность нарисовать линию
+  let cnt=0;
+  while (cnt < pixels.length){
+    if (pixels[cnt][0]<0 || pixels[cnt][0]>width || pixels[cnt][1]<0 || pixels[cnt][1]>height){
+      return;
+    }
+    cnt += 1;
+  }
+  // если все нормально, рисуем линпию
   context.beginPath();
   context.moveTo(pixels[0][0], pixels[0][1]);
   for (let i = 1; i < pixels.length; i++) {
@@ -1017,7 +1020,7 @@ function createMatrixForWay(topLeftLonLat, bottomRightLonLat, osmData) {
   const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]);
   const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]);
   //const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
-  const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
+  //const bboxPolygon = bboxPolygon_(topLeftLonLat, bottomRightLonLat);
 
   //const osmData = await getWaysData(bbox, landuseTags);
 
@@ -1041,27 +1044,34 @@ function createMatrixForWay(topLeftLonLat, bottomRightLonLat, osmData) {
   context.fillStyle = 'black';
   context.fillRect(0, 0, width, height);
 
+  const bboxPolygon = bboxPolygon_([0,0], [width, height]);
+
   ways.forEach(way => {
     const nodes = way.nodes.map(nodeId => nodesMap.get(nodeId)).filter(Boolean);
-    const wayLine = lineString(nodes);
-    
+    const pixels = findPixelsCoords(nodes, topLeftLonLat, tileWidth_, tileHeight_, width, height);
+    const wayLine = lineString(pixels);
     // Обрезка линии по bbox
-    const clipped = lineSplit(wayLine, bboxPolygon);
-    clipped.features.forEach(segment => {
-        const coords = segment.geometry.coordinates;
-        const pixels = findPixelsCoords(coords, topLeftLonLat, tileWidth_, tileHeight_, width, height);
-        drawLine(context, pixels);
-    });
+    const splitted = lineSplit(wayLine, bboxPolygon);
+    if (splitted.features.length == 0)
+    {
+      drawLine(context, wayLine.geometry.coordinates);
+    }
+    else{
+      splitted.features.forEach(segment => {
+          const coords = segment.geometry.coordinates;
+          drawLine(context, coords);
+      });
+    }
   });
 
-  // Получаем данные изображения в формате PNG
-  const dataURL = canvas.toDataURL('image/png');
+  // // Получаем данные изображения в формате PNG
+  // const dataURL = canvas.toDataURL('image/png');
 
-  // Скачиваем изображение
-  const link = document.createElement('a');
-  link.href = dataURL;
-  link.download = 'waterway.png';
-  link.click();
+  // // Скачиваем изображение
+  // const link = document.createElement('a');
+  // link.href = dataURL;
+  // link.download = 'waterway.png';
+  // link.click();
 
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
