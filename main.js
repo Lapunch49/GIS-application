@@ -28,8 +28,8 @@ let pointsOnMap = [];
 let ZOOM = 15; // уровень масштабирования для алгоритма
 let way  = []; // путь на карте (массив точек в формате географических координат)
 
-let kMountain=1; //1, 2, 3, 4
-let kForest = 1; //1, 9, 17, 25
+let kMountain=1; // 1, 9, 17, 25
+let kForest = 0; // 0, 1, 2, 3
 
 let startTime = 0;
 let endTime = 0;
@@ -540,9 +540,8 @@ const map = new MapOL({
     }),
   ],
   view: new View({
-    center: [6220000, 7315000],
-    //center: fromLonLat([272.0066751135746, 437.0117187501164]),
-    zoom: 14,
+    center: [6228733.745091898, 7309389.260521347],
+    zoom: 13,
   }),
 });
 
@@ -688,27 +687,31 @@ document.getElementById('find-way').addEventListener('click', async function() {
       alert('Слишком большое окно поиска, попробуйте уменьшить уровень zoom');
     } 
     else{
-      startTime = performance.now();
-      way = await makeImage();
-      endTime = performance.now();
-      console.log("Кол-во точек маршрута:", way.length);
-      // Вычисление и вывод времени выполнения
-      const timeTaken = endTime - startTime;
-      console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
-      
-      // вывод маршрута
-      let pathFeature = new Feature({
-        geometry: new LineString(way),
-        name: 'Route'
-      });
+      if (pointsOnMap.length >= 2){
+        startTime = performance.now();
+        way = await makeImage();
+        endTime = performance.now();
+        console.log("Кол-во точек маршрута:", way.length);
+        // Вычисление и вывод времени выполнения
+        const timeTaken = endTime - startTime;
+        console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
+        
+        // вывод маршрута
+        let pathFeature = new Feature({
+          geometry: new LineString(way),
+          name: 'Route'
+        });
 
-      // добавляем линию в слой векторных объектов
-      vectorSourceWay.addFeature(pathFeature);
+        // добавляем линию в слой векторных объектов
+        vectorSourceWay.addFeature(pathFeature);
 
-      // добавляем прямоугольгник
-      createRectangle();
-      vectorLayerRectangle.setVisible(true);
-      recVisibleFlag = true;
+        // добавляем прямоугольгник
+        createRectangle();
+        vectorLayerRectangle.setVisible(true);
+        recVisibleFlag = true;
+      }else{
+        alert("Введите не менее 2х точек!");
+      }
     }
     //} 
     // catch {
