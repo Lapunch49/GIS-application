@@ -296,6 +296,7 @@ function findCoordsPixels(pixelsAll,topLeftL, pixelLen){
 }
 
 async function makeImage(){
+  const startTimeDataPreprocess = performance.now();
   const TILE_SIZE = 256;
   const sourceURL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 
@@ -328,6 +329,8 @@ async function makeImage(){
       }
   };
 
+  const loadDEM = loadAllTiles();
+
   const topLeftLonLat = toLonLat(topLeft);
   const bottomRightLonLat = toLonLat(bottomRight);
 
@@ -350,7 +353,7 @@ async function makeImage(){
   // данные о воде(водные объекты и болота)
   // try{
     const waterData = await getLanduseData(bbox, waterTags);
-    obstacleMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, waterData);
+    obstacleMatrix = createMatrixForPolygon(topLeftLonLat, bottomRightLonLat, waterData);
 
   // данные о речных путях
   const waterwayData = await getWaysData(bbox, waterwayTags);
@@ -367,7 +370,7 @@ async function makeImage(){
   // данные о зданиях
   const buildingData = await getWaysData(bbox, buildingTags);
   if (buildingData.elements.length >=1 ){
-    buildingMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, buildingData);
+    buildingMatrix = createMatrixForPolygon(topLeftLonLat, bottomRightLonLat, buildingData);
     // объединяем инфу обо всех водных объектах в obstacleMatrix
     for (let i=0; i<height; i++){
       for (let j=0; j<width; j++){
@@ -405,7 +408,7 @@ async function makeImage(){
 
   // данные о лесах
   const forestData = await getLanduseData(bbox, forestTags);
-  forestMatrix = createMatrix(topLeftLonLat, bottomRightLonLat, forestData);
+  forestMatrix = createMatrixForPolygon(topLeftLonLat, bottomRightLonLat, forestData);
   //console.log('Forest Query:');
 
   
@@ -417,7 +420,7 @@ async function makeImage(){
   let pathOnMap = [];
   const matrix = [];
 
-  await loadAllTiles().then(() => {
+  await loadDEM.then(() => {
       // Получить данные изображения в формате PNG
       //const dataURL = canvas.toDataURL('image/png');
 
@@ -457,11 +460,16 @@ async function makeImage(){
     let grid=new Grid(width, height, pointsArrPixels[i], pointsArrPixels[i+1], matrix, obstacleMatrix, forestMatrix );
     grids.push(grid);
   }
+  // Вычисление и вывод времени выполнения
+  const endTimeDataPreprocess = performance.now();
+  const timeDataPreprocess = endTimeDataPreprocess - startTimeDataPreprocess;
+  console.log(`Размер окна поиска: ${width}x${height}`);
+  console.log(`Время предобработки данных: ${timeDataPreprocess.toFixed(2)} миллисекунд`);
   // для каждой пары точек находим мин. путь
   // если путь для какого-то участка не найден, останавливаемся и выводим сообщение об этом
   let pathTotal =[];
   let flag=false;
-  const startTime2 = performance.now();
+  const startTimeAlg = performance.now();
   for (let i=0; i<grids.length; i++){
     let path = a_star(grids[i], ZOOM, kMountain, kForest);
     if (path.length == 0){
@@ -471,11 +479,11 @@ async function makeImage(){
       pathTotal.push(path);
     }
   }
-  const endTime2 = performance.now();
+  const endTimeAlg = performance.now();
 
   // Вычисление и вывод времени выполнения
-  const timeTaken2 = endTime2 - startTime2;
-  console.log(`Время работы алгоритма: ${timeTaken2.toFixed(2)} миллисекунд`);
+  const timeAlg = endTimeAlg - startTimeAlg;
+  console.log(`Время работы алгоритма: ${timeAlg.toFixed(2)} миллисекунд`);
 
   // если все пути были найдены
   if (!flag){
@@ -693,8 +701,9 @@ document.getElementById('find-way').addEventListener('click', async function() {
         endTime = performance.now();
         console.log("Кол-во точек маршрута:", way.length);
         // Вычисление и вывод времени выполнения
-        const timeTaken = endTime - startTime;
-        console.log(`Общее время выполнения: ${timeTaken.toFixed(2)} миллисекунд`);
+        const timeAll = endTime - startTime;
+        //console.log(`Время предобработки: ${(timeAll-timeAlg).toFixed(2)} миллисекунд`);
+        console.log(`Общее время выполнения: ${timeAll.toFixed(2)} миллисекунд`);
         
         // вывод маршрута
         let pathFeature = new Feature({
@@ -888,7 +897,7 @@ function drawPolygon(coords, context, bbox, tileWidth_, tileHeight_) {
   context.fill();
 }
 
-function createMatrix(topLeftLonLat, bottomRightLonLat, osmData) {
+function createMatrixForPolygon(topLeftLonLat, bottomRightLonLat, osmData) {
   const tileWidth_ = (bottomRightLonLat[0] - topLeftLonLat[0]) / width;
   const tileHeight_ = (topLeftLonLat[1] - bottomRightLonLat[1]) / height;
   //const bbox = `${bottomRightLonLat[1]},${topLeftLonLat[0]},${topLeftLonLat[1]},${bottomRightLonLat[0]}`;
